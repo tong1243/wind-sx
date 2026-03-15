@@ -7,7 +7,7 @@ import com.wut.screencommonsx.Model.TravelReservation;
 import com.wut.screencommonsx.Request.GreenCodeRequest;
 import com.wut.screencommonsx.Response.ApiResponse;
 import com.wut.screenwebsx.Service.TravelReservationService;
-import com.wut.screenwebsx.mapper.TravelReservationMapper;
+import com.wut.screenwebsx.Mapper.TravelReservationMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -49,17 +49,19 @@ public class TravelReservationServiceImpl implements TravelReservationService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ApiResponse<?> createCertificate(GreenCodeRequest request, String phone) {
-        // 验证预约是否存在
-        TravelReservation reservation = reservationMapper.selectOne(
-                new LambdaQueryWrapper<TravelReservation>()
-                        .eq(TravelReservation::getUserPhone, phone)
-                        .eq(TravelReservation::getCarLicense, request.getLicensePlate())
-                        .eq(TravelReservation::getTravelTimeSlot, request.getTravelTimeSlot())
-        );
-        if (reservation == null) {
-            throw BusinessException.notFound("未找到对应预约记录");
-        }
+            // 验证预约是否存在（获取最新的预约记录）
+            TravelReservation reservation = reservationMapper.selectList(
+                    new LambdaQueryWrapper<TravelReservation>()
+                            .eq(TravelReservation::getUserPhone, phone)
+                            .eq(TravelReservation::getCarLicense, request.getPlateNumber())
+                            .eq(TravelReservation::getTravelTimeSlot, request.getTravelTimeSlot())
+                            .orderByDesc(TravelReservation::getCreateTime)
+                            .last("LIMIT 1")
+            ).stream().findFirst().orElse(null);
 
+            if (reservation == null) {
+                throw BusinessException.notFound("未找到对应预约记录");
+            }
         // 构建通行凭证
         CertificateResponse response = new CertificateResponse();
         response.setId("cert-" + UUID.randomUUID().toString().substring(0, 9));
@@ -98,11 +100,11 @@ public class TravelReservationServiceImpl implements TravelReservationService {
     private TravelReservation buildReservation(GreenCodeRequest request, String phone) {
         TravelReservation reservation = new TravelReservation();
         reservation.setUserPhone(phone);
-        reservation.setCarLicense(request.getLicensePlate());
+        reservation.setCarLicense(request.getPlateNumber());
         reservation.setStartPoint(request.getStartPoint());
         reservation.setEndPoint(request.getEndPoint());
         reservation.setTravelTimeSlot(request.getTravelTimeSlot());
-        reservation.setCarType(request.getCarType());
+        reservation.setCarType(request.getVehicleType());
         reservation.setCargoWeight(request.getCargoWeight() == null ? 
                 java.math.BigDecimal.ZERO : new java.math.BigDecimal(request.getCargoWeight()));
         reservation.setIsPassed(1); // 默认通过
