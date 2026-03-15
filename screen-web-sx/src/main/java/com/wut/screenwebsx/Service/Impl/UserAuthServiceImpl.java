@@ -9,13 +9,12 @@ import com.wut.screencommonsx.Request.*;
 import com.wut.screencommonsx.Response.ApiResponse;
 import com.wut.screencommonsx.Util.JwtUtil;
 import com.wut.screenwebsx.Service.UserAuthService;
-import com.wut.screenwebsx.mapper.UserAccountMapper;
+import com.wut.screenwebsx.Mapper.UserAccountMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 
 import java.util.regex.Pattern;
 

@@ -42,7 +42,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             }
         }
 
-        // 获取Token
+        // 获取 Token
         String authHeader = request.getHeader("Authorization");
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             sendError(response, 401, "未授权，请先登录");
@@ -50,8 +50,14 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
 
         String token = authHeader.substring(7);
+        // 额外验证：token 不能为空或纯空格
+        if (token.trim().isEmpty()) {
+            sendError(response, 401, "Token 不能为空");
+            return;
+        }
+
         if (!jwtUtil.isValid(token)) {
-            sendError(response, 401, "Token过期或无效，请重新登录");
+            sendError(response, 401, "Token 过期或无效，请重新登录");
             return;
         }
 

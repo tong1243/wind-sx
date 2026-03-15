@@ -21,10 +21,10 @@ public class GreenCodeRequest {
     private String travelTimeSlot;
 
     @NotBlank(message = "车型不能为空")
-    private String carType;
+    private String vehicleType;
 
     @NotBlank(message = "车牌号不能为空")
-    private String licensePlate;
+    private String plateNumber;
 
     // 可选：货物重量（吨）
     private String cargoWeight;

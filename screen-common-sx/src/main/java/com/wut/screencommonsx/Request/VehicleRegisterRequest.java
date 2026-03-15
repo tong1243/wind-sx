@@ -11,7 +11,7 @@ import lombok.Data;
 public class VehicleRegisterRequest {
     @NotBlank(message = "车辆名称不能为空")
     @Pattern(regexp = "^[^\\s]{1,6}$", message = "车辆名称1-6位，不含空格")
-    private String carName;
+    private String vehicleName;
 
     @NotBlank(message = "车牌号不能为空")
     private String licensePlate;
@@ -20,7 +20,7 @@ public class VehicleRegisterRequest {
     private String owner;
 
     @NotBlank(message = "车辆类型不能为空")
-    private String carType;
+    private String vehicleType;
 
     @NotBlank(message = "使用性质不能为空")
     private String usageNature;
@@ -40,5 +40,5 @@ public class VehicleRegisterRequest {
     private String registrationDate;
 
     @NotBlank(message = "行驶证照片URL不能为空")
-    private String licensePhotoUrl;
+    private String licensePhoto;
 }

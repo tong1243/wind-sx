@@ -9,8 +9,8 @@ import com.wut.screencommonsx.Model.UserAccount;
 import com.wut.screencommonsx.Request.VehicleRegisterRequest;
 import com.wut.screencommonsx.Response.ApiResponse;
 import com.wut.screenwebsx.Service.CarInfoService;
-import com.wut.screenwebsx.mapper.CarInfoMapper;
-import com.wut.screenwebsx.mapper.UserAccountMapper;
+import com.wut.screenwebsx.Mapper.CarInfoMapper;
+import com.wut.screenwebsx.Mapper.UserAccountMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -29,8 +29,33 @@ public class CarInfoServiceImpl extends ServiceImpl<CarInfoMapper, CarInfo> impl
 
     @Override
     public ApiResponse<List<CarInfo>> getMyVehicles(String phone) {
-        List<CarInfo> carList = carInfoMapper.selectByUserPhone(phone);
-        // 隐藏VIN码中间6位
+        UserAccount user = userAccountMapper.selectById(phone);
+        if (user == null) {
+            throw BusinessException.notFound("用户不存在");
+        }
+
+        // 获取用户绑定的所有车牌号
+        List<String> licensePlates = new java.util.ArrayList<>();
+        if (user.getCar1License() != null) {
+            licensePlates.add(user.getCar1License());
+        }
+        if (user.getCar2License() != null) {
+            licensePlates.add(user.getCar2License());
+        }
+        if (user.getCar3License() != null) {
+            licensePlates.add(user.getCar3License());
+        }
+
+        // 如果没有绑定的车辆，返回空列表
+        if (licensePlates.isEmpty()) {
+            return ApiResponse.success("获取成功", new java.util.ArrayList<>());
+        }
+
+        // 查询绑定的车辆信息
+        List<CarInfo> carList = list(new LambdaQueryWrapper<CarInfo>()
+                .in(CarInfo::getLicensePlate, licensePlates));
+
+        // 隐藏 VIN 码中间 6 位
         carList.forEach(car -> car.setVin(hideVin(car.getVin())));
         return ApiResponse.success("获取成功", carList);
     }

@@ -37,25 +37,34 @@ public class JwtUtil {
                 .compact();                // 生成最终Token字符串
     }
 
-    // 解析Token获取Claims（载荷）
+    // 解析 Token 获取 Claims（载荷）
     public Claims parseToken(String token) {
         try {
-            SecretKey key = Keys.hmacShaKeyFor(secret.getBytes());
-            // 移除Bearer前缀（适配HTTP请求头格式）
+            // 基础格式验证：JWT 必须包含 2 个点号
+            if (token == null || token.trim().isEmpty()) {
+                return null;
+            }
+
             String cleanToken = token.replace("Bearer ", "").trim();
-            // 解析Token并返回载荷
+
+            // 验证 JWT 基本格式
+            if (!cleanToken.contains(".") || cleanToken.split("\\.", -1).length != 3) {
+                return null;
+            }
+
+            SecretKey key = Keys.hmacShaKeyFor(secret.getBytes());
+            // 解析 Token 并返回载荷
             return Jwts.parserBuilder()
                     .setSigningKey(key)
                     .build()
                     .parseClaimsJws(cleanToken)
                     .getBody();
         } catch (Exception e) {
-            // 解析失败（过期、签名错误、格式错误等）返回null
+            // 解析失败（过期、签名错误、格式错误等）返回 null
             e.printStackTrace(); // 生产环境建议替换为日志记录
             return null;
         }
     }
-
     // 验证Token有效性（未过期且解析成功）
     public boolean isValid(String token) {
         Claims claims = parseToken(token);

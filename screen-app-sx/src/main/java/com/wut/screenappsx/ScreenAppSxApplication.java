@@ -14,7 +14,7 @@ import org.springframework.web.socket.config.annotation.EnableWebSocket;
 @EnableRabbit
 @EnableScheduling
 @EnableWebSocket
-@MapperScan("com.wut.screendbmysqlsx.Mapper")
+@MapperScan({"com.wut.screendbmysqlsx.Mapper", "com.wut.screenwebsx.Mapper"})
 @ComponentScan(basePackages = {
         "com.wut.screenappsx",
         "com.wut.screencommonsx",

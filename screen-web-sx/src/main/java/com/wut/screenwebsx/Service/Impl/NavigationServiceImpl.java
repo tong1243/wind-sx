@@ -5,7 +5,7 @@ import com.wut.screencommonsx.Model.UcCarRealTime;
 import com.wut.screencommonsx.Response.ApiResponse;
 import com.wut.screenwebsx.Controller.NavigationController;
 import com.wut.screenwebsx.Service.NavigationService;
-import com.wut.screenwebsx.mapper.UcCarRealTimeMapper;
+import com.wut.screenwebsx.Mapper.UcCarRealTimeMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

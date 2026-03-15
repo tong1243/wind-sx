@@ -1,4 +1,4 @@
-package com.wut.screenwebsx.mapper;
+package com.wut.screenwebsx.Mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.wut.screencommonsx.Model.UserAccount;

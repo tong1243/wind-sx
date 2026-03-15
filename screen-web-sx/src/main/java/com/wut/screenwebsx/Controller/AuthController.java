@@ -6,6 +6,7 @@ import com.wut.screencommonsx.Response.ApiResponse;
 import com.wut.screenwebsx.Service.UserAuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
+@Slf4j
 public class AuthController {
     private final UserAuthService userAuthService;
 
@@ -28,6 +30,7 @@ public class AuthController {
     @PostMapping("/logout")
     public ApiResponse<?> logout() {
         // 前端清除Token即可，后端无需处理
+        log.info("用户退出登录");
         return ApiResponse.success("退出登录成功", null);
     }
 

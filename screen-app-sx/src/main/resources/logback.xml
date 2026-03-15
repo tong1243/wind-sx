@@ -26,7 +26,7 @@
         <discardingThreshold>0</discardingThreshold>
         <appender-ref ref ="FILE"/>
     </appender>
-
+    <logger name="com.wut.screenwebsx" level="DEBUG"/>
     <logger name="com.wut.screendbmysqlsx.Mapper" level="DEBUG"/>
     <logger name="org.apache.kafka" level="WARN"/>
     <root level="INFO">
