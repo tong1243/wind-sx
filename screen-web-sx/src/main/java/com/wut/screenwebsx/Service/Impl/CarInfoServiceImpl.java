@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 
 @Slf4j
@@ -74,7 +75,11 @@ public class CarInfoServiceImpl extends ServiceImpl<CarInfoMapper, CarInfo> impl
         // 构建车辆信息
         CarInfo carInfo = new CarInfo();
         BeanUtils.copyProperties(request, carInfo);
-        carInfo.setRegisterDate(LocalDate.parse(request.getRegistrationDate()));
+        try {
+            carInfo.setRegisterDate(LocalDate.parse(request.getRegistrationDate()));
+        } catch (DateTimeParseException e) {
+            throw BusinessException.badRequest("注册日期格式无效");
+        }
         carInfo.setAuditStatus("unaudited"); // 初始未审核
         carInfo.setCurrentPoints(12); // 初始12分
         save(carInfo);
@@ -92,6 +97,9 @@ public class CarInfoServiceImpl extends ServiceImpl<CarInfoMapper, CarInfo> impl
     // 绑定车辆到用户（按car1/car2/car3顺序）
     private void bindCarToUser(String phone, String licensePlate) {
         UserAccount user = userAccountMapper.selectById(phone);
+        if (user == null) {
+            throw BusinessException.notFound("用户不存在");
+        }
         if (user.getCar1License() == null) {
             user.setCar1License(licensePlate);
         } else if (user.getCar2License() == null) {
