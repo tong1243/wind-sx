@@ -24,7 +24,7 @@ public class TrajFrameTimeContext {
             TRAJ_FRAME_RECORD_TIME_INIT_FLAG = true;
             return false;
         }
-        if (timestamp - TRAJ_FRAME_RECORD_TIME == TRAJ_RECORD_COND) {
+        if (timestamp - TRAJ_FRAME_RECORD_TIME >= TRAJ_RECORD_COND) {
             TRAJ_FRAME_RECORD_TIME = timestamp;
             return true;
         }
