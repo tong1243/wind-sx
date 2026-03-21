@@ -52,6 +52,9 @@ public class Traj {
     @TableField("licenseColor")
     @JsonProperty("licenseColor")
     private Integer licenseColor;
+    @TableField("road")
+    @JsonProperty("road")
+    private Integer road;
     private Integer lane;
     private String type;
     @TableField("carType")
