@@ -271,6 +271,10 @@ public class TrajFrameDataContext {
                 long sendFrameToEZCount = trajListToEZ.stream()
                         .mapToLong(item -> CollectionEmptyUtil.forList(item.getFrameList()) ? 0 : item.getFrameList().size())
                         .sum();
+                long newTrajToWHCount = trajListToWH.stream().filter(item -> item.getState() == TRAJ_FRAME_STATE_NEW).count();
+                long newTrajToEZCount = trajListToEZ.stream().filter(item -> item.getState() == TRAJ_FRAME_STATE_NEW).count();
+                long onlineTrajToWHCount = trajListToWH.size() - newTrajToWHCount;
+                long onlineTrajToEZCount = trajListToEZ.size() - newTrajToEZCount;
                 MessagePrintUtil.printTrajSendSummary(
                         trajFrameModel.getTimestamp(),
                         sessions.size(),
@@ -278,6 +282,10 @@ public class TrajFrameDataContext {
                         originalTrajToEZCount,
                         trajListToWH.size(),
                         trajListToEZ.size(),
+                        newTrajToWHCount,
+                        newTrajToEZCount,
+                        onlineTrajToWHCount,
+                        onlineTrajToEZCount,
                         sendFrameToWHCount,
                         sendFrameToEZCount,
                         expireRecord.listToWH.size(),

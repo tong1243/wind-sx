@@ -32,6 +32,10 @@ public class MessagePrintUtil {
             long originalTrajToEZCount,
             int sendTrajToWHCount,
             int sendTrajToEZCount,
+            long newTrajToWHCount,
+            long newTrajToEZCount,
+            long onlineTrajToWHCount,
+            long onlineTrajToEZCount,
             long sendFrameToWHCount,
             long sendFrameToEZCount,
             int expireToWHCount,
@@ -43,6 +47,8 @@ public class MessagePrintUtil {
                 + ", session=" + sessionCount
                 + ", originalTraj(WH/EZ)=" + originalTrajToWHCount + "/" + originalTrajToEZCount
                 + ", sendTraj(WH/EZ)=" + sendTrajToWHCount + "/" + sendTrajToEZCount
+                + ", stateNew(WH/EZ)=" + newTrajToWHCount + "/" + newTrajToEZCount
+                + ", stateOnline(WH/EZ)=" + onlineTrajToWHCount + "/" + onlineTrajToEZCount
                 + ", sendFrame(WH/EZ)=" + sendFrameToWHCount + "/" + sendFrameToEZCount
                 + ", expire(WH/EZ)=" + expireToWHCount + "/" + expireToEZCount
                 + ", offline(WH/EZ)=" + offlineToWHCount + "/" + offlineToEZCount);
