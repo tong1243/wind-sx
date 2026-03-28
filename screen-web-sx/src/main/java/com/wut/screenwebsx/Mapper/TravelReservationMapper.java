@@ -14,4 +14,7 @@ public interface TravelReservationMapper extends BaseMapper<TravelReservation> {
     // 查询用户最新的预约记录
     @Select("SELECT * FROM travel_reservation WHERE user_phone = #{phone} ORDER BY create_time DESC LIMIT 1")
     TravelReservation selectLatestByPhone(@Param("phone") String phone);
+
+    @Select("SELECT * FROM travel_reservation WHERE UPPER(car_license) = UPPER(#{carLicense}) ORDER BY create_time DESC LIMIT 1")
+    TravelReservation selectLatestByCarLicense(@Param("carLicense") String carLicense);
 }
