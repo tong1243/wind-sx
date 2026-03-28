@@ -265,6 +265,26 @@ public class TrajFrameDataContext {
             try {
                 // 获取所有已连接的会话
                 ConcurrentHashMap<String, WebSocketSession> sessions = WebSocketSessionContext.getAllSessions();
+                long sendFrameToWHCount = trajListToWH.stream()
+                        .mapToLong(item -> CollectionEmptyUtil.forList(item.getFrameList()) ? 0 : item.getFrameList().size())
+                        .sum();
+                long sendFrameToEZCount = trajListToEZ.stream()
+                        .mapToLong(item -> CollectionEmptyUtil.forList(item.getFrameList()) ? 0 : item.getFrameList().size())
+                        .sum();
+                MessagePrintUtil.printTrajSendSummary(
+                        trajFrameModel.getTimestamp(),
+                        sessions.size(),
+                        originalTrajToWHCount,
+                        originalTrajToEZCount,
+                        trajListToWH.size(),
+                        trajListToEZ.size(),
+                        sendFrameToWHCount,
+                        sendFrameToEZCount,
+                        expireRecord.listToWH.size(),
+                        expireRecord.listToEZ.size(),
+                        offlineRecord.listToWH.size(),
+                        offlineRecord.listToEZ.size()
+                );
                 for (Map.Entry<String, WebSocketSession> entry : sessions.entrySet()) {
                     WebSocketSession session = entry.getValue();
                     // 连接未建立/已经关闭时,提示消息无法发送
