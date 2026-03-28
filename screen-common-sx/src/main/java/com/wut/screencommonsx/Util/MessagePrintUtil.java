@@ -1,6 +1,6 @@
 package com.wut.screencommonsx.Util;
 
-import org.apache.commons.lang3.exception.*;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 
 import java.util.logging.Logger;
 
@@ -25,9 +25,31 @@ public class MessagePrintUtil {
         LOGGER.warning("[TRY SEND TRAJ FRAME DATA BUT CLIENT NOT CONNECTED] " + timestamp);
     }
 
-    // (保留)测试日志输出
+    public static void printTrajSendSummary(
+            long timestamp,
+            int sessionCount,
+            long originalTrajToWHCount,
+            long originalTrajToEZCount,
+            int sendTrajToWHCount,
+            int sendTrajToEZCount,
+            long sendFrameToWHCount,
+            long sendFrameToEZCount,
+            int expireToWHCount,
+            int expireToEZCount,
+            int offlineToWHCount,
+            int offlineToEZCount
+    ) {
+        LOGGER.info("[TRAJ SEND SUMMARY] ts=" + timestamp
+                + ", session=" + sessionCount
+                + ", originalTraj(WH/EZ)=" + originalTrajToWHCount + "/" + originalTrajToEZCount
+                + ", sendTraj(WH/EZ)=" + sendTrajToWHCount + "/" + sendTrajToEZCount
+                + ", sendFrame(WH/EZ)=" + sendFrameToWHCount + "/" + sendFrameToEZCount
+                + ", expire(WH/EZ)=" + expireToWHCount + "/" + expireToEZCount
+                + ", offline(WH/EZ)=" + offlineToWHCount + "/" + offlineToEZCount);
+    }
+
+    // Reserved debug log for full payload.
     public static void printTrajCarList(long timestamp, String resp) {
         LOGGER.info("[TRAJ FRAME DATA RECORD] (" + (timestamp - TRAJ_RECORD_COND) + "->" + timestamp + ") " + resp);
     }
-
 }
