@@ -33,7 +33,7 @@ import java.util.stream.Collectors;
 import static com.wut.screencommonsx.Static.WebModuleStatic.*;
 
 @Component
-public class TrajFrameDataContext {
+public class TrajFrameDataContext1 {
     @Qualifier("trajFrameDataReceiveTaskAsyncPool")
     private final Executor trajFrameDataReceiveTaskAsyncPool;
     @Qualifier("trajFrameDataSendTaskAsyncPool")
@@ -42,18 +42,18 @@ public class TrajFrameDataContext {
     private final ObjectMapper objectMapper = new ObjectMapper();
     public record TrajDirectionRecord(List<Long> listToWH, List<Long> listToEZ, List<Long> originalTrajIds) {};
 
-    // 记录接收端传来的历史轨迹号和最新时间
+    // ��¼���ն˴�������ʷ�켣�ź�����ʱ��
     @Getter
     private static final Map<Long, TrajStateModel> TRAJ_STATE_MAP = new ConcurrentHashMap<>();
-    // 武汉到鄂州方向动态轨迹
+    // �人�����ݷ���̬�켣
     @Getter
     private static final Map<Long, TrajInfoData> TRAJ_MAP_TO_EZ = new ConcurrentHashMap<>();
-    // 鄂州到武汉方向动态轨迹
+    // ���ݵ��人����̬�켣
     @Getter
     private static final Map<Long, TrajInfoData> TRAJ_MAP_TO_WH = new ConcurrentHashMap<>();
 
     @Autowired
-    public TrajFrameDataContext(Executor trajFrameDataReceiveTaskAsyncPool, TrajFrameTimeContext trajFrameTimeContext, Executor trajFrameDataSendTaskAsyncPool) {
+    public TrajFrameDataContext1(Executor trajFrameDataReceiveTaskAsyncPool, TrajFrameTimeContext trajFrameTimeContext, Executor trajFrameDataSendTaskAsyncPool) {
         this.trajFrameDataReceiveTaskAsyncPool = trajFrameDataReceiveTaskAsyncPool;
         this.trajFrameTimeContext = trajFrameTimeContext;
         this.trajFrameDataSendTaskAsyncPool = trajFrameDataSendTaskAsyncPool;
@@ -80,21 +80,21 @@ public class TrajFrameDataContext {
         try {
             TrajFrameModel trajFrameModel = objectMapper.readValue(data, TrajFrameModel.class);
             List<Traj> originalTrajList = trajFrameModel.getTrajList();
-            // 计算筛选前的轨迹数量
+            // ����ɸѡǰ�Ĺ켣����
             long trajToWHCount = originalTrajList.stream()
                     .filter(traj -> traj.getRoadDirect() == TRAJ_ROAD_DIRECT_TO_WH)
                     .count();
             long trajToEZCount = originalTrajList.stream()
                     .filter(traj -> traj.getRoadDirect() == TRAJ_ROAD_DIRECT_TO_EZ)
                     .count();
-            // 筛选轨迹数据并更新到 trajFrameModel
+            // ɸѡ�켣���ݲ����µ� trajFrameModel
             List<Traj> filteredTrajList = filterTrajList(originalTrajList);
             if (!CollectionEmptyUtil.forList(filteredTrajList)) {
-                // 解析当前时间戳的轨迹时间戳,对每个轨迹异步进行,最终需要对任务进行同步
+                // ������ǰʱ����Ĺ켣ʱ���,��ÿ���켣�첽����,������Ҫ���������ͬ��
                 recordTrajFrameData(filteredTrajList).get(ASYNC_SERVICE_TIMEOUT, TimeUnit.SECONDS);
             }
             if (trajFrameTimeContext.recordTrajFrameRecordTime(trajFrameModel.getTimestamp())) {
-                // 发送时间戳及数据的任务异步进行无需同步
+                // ����ʱ��������ݵ������첽��������ͬ��
                 TrajDirectionRecord expireRecord = flushExpireTrajId(trajFrameModel);
                 TrajDirectionRecord offlineRecord = flushOfflineTrajId();
                 asyncSendTrajFrameData(
@@ -155,28 +155,28 @@ public class TrajFrameDataContext {
         return CompletableFuture.allOf(recordTrajTask.toArray(CompletableFuture[]::new));
     }
 
-    // 记录轨迹帧到当前时间区间对应方向的表中
+    // ��¼�켣֡����ǰʱ�������Ӧ����ı���
     public void recordTrajToInfoDataList(Map<Long, TrajInfoData> trajInfoDataMap, Traj traj) {
         long trajId = traj.getTrajId();
         TrajInfoData trajInfoData = trajInfoDataMap.get(trajId);
             if (trajInfoData == null) {
-                // 如果该时间段内该轨迹号没有被记录
-                // -> 该轨迹号在之前的时间段内没有出现过,则置state为0,需要添加车辆实体
-                // -> 该轨迹号在之前的时间段内已经出现过,则置state为1,并添加该轨迹号的记录,不需要添加车辆实体
+                // �����ʱ����ڸù켣��û�б���¼
+                // -> �ù켣����֮ǰ��ʱ�����û�г��ֹ�,����stateΪ0,��Ҫ��ӳ���ʵ��
+                // -> �ù켣����֮ǰ��ʱ������Ѿ����ֹ�,����stateΪ1,����Ӹù켣�ŵļ�¼,����Ҫ��ӳ���ʵ��
                 TrajStateModel trajStateModel = TRAJ_STATE_MAP.get(trajId);
                 if (trajStateModel == null) {
                     trajInfoDataMap.put(trajId, DbModelTransformUtil.trajToInfoData(traj, TRAJ_FRAME_STATE_NEW));
                     TRAJ_STATE_MAP.put(trajId, new TrajStateModel(traj.getRoadDirect(), traj.getTimestamp(), TRAJ_FRAME_STATE_ONLINE));
                 } else {
                     trajInfoDataMap.put(trajId, DbModelTransformUtil.trajToInfoData(traj, TRAJ_FRAME_STATE_ONLINE));
-                    // 超时时间5min,差距过大,因此可以只记录每个时间区间第一次的时间戳简化运算
-                    // 记录的时间戳用于判断该轨迹对应的车辆模型在客户端是否应该删除以释放资源
+                    // ��ʱʱ��5min,������,��˿���ֻ��¼ÿ��ʱ�������һ�ε�ʱ���������
+                    // ��¼��ʱ��������жϸù켣��Ӧ�ĳ���ģ���ڿͻ����Ƿ�Ӧ��ɾ�����ͷ���Դ
                     trajStateModel.setTimestamp(traj.getTimestamp());
-                    // 每个时间区间的结尾会置所有标志位为离线状态,因此这里要重新修改为在线轨迹,防止被视为无效数据
+                    // ÿ��ʱ������Ľ�β�������б�־λΪ����״̬,�������Ҫ�����޸�Ϊ���߹켣,��ֹ����Ϊ��Ч����
                     trajStateModel.setState(TRAJ_FRAME_STATE_ONLINE);
                 }
             } else {
-                // 记录轨迹帧最新的状态供客户端读取
+                // ��¼�켣֡���µ�״̬���ͻ��˶�ȡ
                 trajInfoData.setTimestamp(traj.getTimestamp());
                 trajInfoData.setLicense(traj.getCarId());
                 trajInfoData.setPosition(DataParamParseUtil.getPositionStr(traj.getFrenetX()));
@@ -186,24 +186,24 @@ public class TrajFrameDataContext {
 
     }
 
-    // 每次发送轨迹数据前,检查是否有过长时间没有记录新的轨迹数据的轨迹号
-    // 失效的轨迹号从记录表中删除,同时返回这些轨迹号的列表,通知前端处理
+    // ÿ�η��͹켣����ǰ,����Ƿ��й���ʱ��û�м�¼�µĹ켣���ݵĹ켣��
+    // ʧЧ�Ĺ켣�ŴӼ�¼����ɾ��,ͬʱ������Щ�켣�ŵ��б�,֪ͨǰ�˴���
     public TrajDirectionRecord flushExpireTrajId(TrajFrameModel model) {
         List<Traj> originalTrajList = model.getTrajList();
 
-        // 提取 originalTrajList 中的轨迹 ID
+        // ��ȡ originalTrajList �еĹ켣 ID
         List<Long> originalTrajIds = originalTrajList.stream()
                 .map(Traj::getTrajId)
                 .collect(Collectors.toList());
 
-        // 初始化记录对象，包含 originalTrajIds
+        // ��ʼ����¼���󣬰��� originalTrajIds
         TrajDirectionRecord record = new TrajDirectionRecord(
                 new ArrayList<>(),
                 new ArrayList<>(),
-                originalTrajIds // 将 originalTrajIds 添加到记录中
+                originalTrajIds // �� originalTrajIds ��ӵ���¼��
         );
 
-        // 处理过期轨迹
+        // ������ڹ켣
         List<Long> readyToRemoveList = TRAJ_STATE_MAP.entrySet().stream()
                 .filter(entry -> entry.getValue().getTimestamp() <= (model.getTimestamp() - TRAJ_EXPIRE_TIMEOUT))
                 .peek(entry -> {
@@ -215,14 +215,14 @@ public class TrajFrameDataContext {
                 .map(Map.Entry::getKey)
                 .toList();
 
-        // 从 TRAJ_STATE_MAP 中移除过期条目
+        // �� TRAJ_STATE_MAP ���Ƴ�������Ŀ
         readyToRemoveList.forEach(TRAJ_STATE_MAP::remove);
 
         return record;
     }
 
-    // 每次发送轨迹数据前,检查是否有该记录时间段内没有任何记录的离线轨迹
-    // 将所有非离线轨迹的状态位重置为离线轨迹;将离线轨迹的状态位修改为离线已发送,并记录这些轨迹发送给客户端
+    // ÿ�η��͹켣����ǰ,����Ƿ��иü�¼ʱ�����û���κμ�¼�����߹켣
+    // �����з����߹켣��״̬λ����Ϊ���߹켣;�����߹켣��״̬λ�޸�Ϊ�����ѷ���,����¼��Щ�켣���͸��ͻ���
     public TrajDirectionRecord flushOfflineTrajId() {
         List<Long> originalTrajIds = List.of();
         TrajDirectionRecord record = new TrajDirectionRecord(new ArrayList<>(), new ArrayList<>(), originalTrajIds);
@@ -241,8 +241,8 @@ public class TrajFrameDataContext {
         return record;
     }
 
-    // 当时间戳间隔达到规定的刷新时间时,检查是否已与客户端建立连接,向客户端推送数据
-// 异步操作压缩接收轨迹数据帧的时间
+    // ��ʱ�������ﵽ�涨��ˢ��ʱ��ʱ,����Ƿ�����ͻ��˽�������,��ͻ�����������
+// �첽����ѹ�����չ켣����֡��ʱ��
     public CompletableFuture<Void> asyncSendTrajFrameData(TrajFrameModel trajFrameModel, long originalTrajToWHCount, long originalTrajToEZCount, TrajDirectionRecord expireRecord, TrajDirectionRecord offlineRecord, List<TrajInfoData> trajListToWH, List<TrajInfoData> trajListToEZ) {
         return CompletableFuture.runAsync(() -> {
             TrajCarStatisticData statisticData = new TrajCarStatisticData(
@@ -263,7 +263,7 @@ public class TrajFrameDataContext {
                     offlineRecord.listToEZ
             );
             try {
-                // 获取所有已连接的会话
+                // ��ȡ���������ӵĻỰ
                 ConcurrentHashMap<String, WebSocketSession> sessions = WebSocketSessionContext.getAllSessions();
                 long sendFrameToWHCount = trajListToWH.stream()
                         .mapToLong(item -> CollectionEmptyUtil.forList(item.getFrameList()) ? 0 : item.getFrameList().size())
@@ -295,7 +295,7 @@ public class TrajFrameDataContext {
                 );
                 for (Map.Entry<String, WebSocketSession> entry : sessions.entrySet()) {
                     WebSocketSession session = entry.getValue();
-                    // 连接未建立/已经关闭时,提示消息无法发送
+                    // ����δ����/�Ѿ��ر�ʱ,��ʾ��Ϣ�޷�����
                     if (session == null || !session.isOpen()) {
                         MessagePrintUtil.printErrorSendMessage(trajFrameModel.getTimestamp());
                     } else {
@@ -303,7 +303,7 @@ public class TrajFrameDataContext {
                         MessagePrintUtil.printSuccessSendMessage(trajFrameModel.getTimestamp());
                     }
                 }
-                // 测试日志输出,非必要情况下应当注释
+                // ������־���,�Ǳ�Ҫ�����Ӧ��ע��
                 // MessagePrintUtil.printTrajCarList(timestamp, resp);
             } catch (Exception e) { MessagePrintUtil.printException(e, "sendTrajFrameData"); }
         }, trajFrameDataSendTaskAsyncPool);
