@@ -13,10 +13,12 @@ import com.wut.screencommonsx.Util.DateParamParseUtil;
 import com.wut.screencommonsx.Util.ModelTransformUtil;
 import com.wut.screendbmysqlsx.Model.CarEvent;
 import com.wut.screendbmysqlsx.Model.Laneline;
+import com.wut.screendbmysqlsx.Model.RoadSegmentStatic;
 import com.wut.screendbmysqlsx.Model.Traj;
 import com.wut.screendbmysqlsx.Model.TunnelSecInfo;
 import com.wut.screendbmysqlsx.Service.CarEventService;
 import com.wut.screendbmysqlsx.Service.LanelineService;
+import com.wut.screendbmysqlsx.Service.RoadSegmentStaticService;
 import com.wut.screendbmysqlsx.Service.SecInfoService;
 import com.wut.screendbmysqlsx.Service.TrajService;
 import com.wut.screendbmysqlsx.Util.DbModelTransformUtil;
@@ -31,25 +33,44 @@ import java.util.*;
 
 import static com.wut.screencommonsx.Static.WebModuleStatic.*;
 
+/**
+ * 事件模块业务服务。
+ * 提供事件列表、事件轨迹、处置、统计与检测信息查询能力。
+ */
 @Component
 public class EventWebService {
+    /** 事件数据服务。 */
     private static CarEventService carEventService;
+    /** 断面信息上下文。 */
     private final SecInfoDataContext secInfoDataContext;
+    /** 事件预处理服务。 */
     private final EventDataPreService eventDataPreService;
+    /** 轨迹数据服务。 */
     private final TrajService trajService;
+    /** 断面基础信息服务。 */
     private static SecInfoService secInfoService;
+    /** 车道线服务。 */
     private  final LanelineService lanelineService;
+    /** 路段静态信息服务。 */
+    private final RoadSegmentStaticService roadSegmentStaticService;
 
     @Autowired
-    public EventWebService(CarEventService carEventService, SecInfoDataContext secInfoDataContext, EventDataPreService eventDataPreService, TrajService trajService, SecInfoService secInfoService, LanelineService lanelineService) {
+    public EventWebService(CarEventService carEventService, SecInfoDataContext secInfoDataContext, EventDataPreService eventDataPreService, TrajService trajService, SecInfoService secInfoService, LanelineService lanelineService, RoadSegmentStaticService roadSegmentStaticService) {
         this.carEventService = carEventService;
         this.secInfoDataContext = secInfoDataContext;
         this.eventDataPreService = eventDataPreService;
         this.trajService = trajService;
         this.secInfoService = secInfoService;
         this.lanelineService = lanelineService;
+        this.roadSegmentStaticService = roadSegmentStaticService;
     }
 
+    /**
+     * 获取事件首页数据。
+     *
+     * @param timestamp 毫秒时间戳
+     * @return 事件统计与事件列表
+     */
     @Docking
     public EventDataResp collectEventData(long timestamp) {
         List<CarEvent> carEventList = eventDataPreService.initCarEventData(timestamp);
@@ -68,6 +89,12 @@ public class EventWebService {
         return new EventDataResp(statisticData, roadRecordList, infoDataList);
     }
 
+    /**
+     * 获取事件轨迹详情。
+     *
+     * @param req 事件轨迹请求参数
+     * @return 事件轨迹详情
+     */
     @Docking
     public EventTrackDataResp collectEventTrackData(EventTrackReq req) {
         EventTrackModel eventTrackModel = eventDataPreService.initEventTrackModel(req);
@@ -83,6 +110,12 @@ public class EventWebService {
         return new EventTrackDataResp(eventInfo, trackInfoList);
     }
 
+    /**
+     * 获取指定时间事件数据。
+     *
+     * @param req 指定时间请求参数
+     * @return 指定时间事件统计
+     */
     @Docking
     public EventDataResp collectEventTargetData(TargetDataReq req) {
         TargetTimeModel targetTime = DateParamParseUtil.getTargetDataTime(req);
@@ -99,6 +132,32 @@ public class EventWebService {
         return new EventDataResp(statisticData, roadRecordList, List.of(new EventInfoData()));
     }
 
+    /**
+     * 获取事件检测信息列表（4.1.3）。
+     *
+     * @param timestamp 毫秒时间戳
+     * @return 事件检测响应
+     */
+    @Docking
+    public EventDetectionResp collectEventDetectionData(long timestamp) {
+        List<CarEvent> eventList = eventDataPreService.initCarEventData(timestamp);
+        List<RoadSegmentStatic> segmentList = roadSegmentStaticService.getEnabledSegments();
+        if (CollectionEmptyUtil.forList(eventList)) {
+            return new EventDetectionResp(timestamp, new ArrayList<>());
+        }
+        List<EventDetectionRecord> recordList = eventList.stream()
+                .sorted(Comparator.comparingLong((CarEvent item) -> item.getStartTimestamp() == null ? 0L : item.getStartTimestamp()).reversed())
+                .map(item -> toEventDetectionRecord(item, segmentList))
+                .toList();
+        return new EventDetectionResp(timestamp, recordList);
+    }
+
+    /**
+     * 更新事件处置状态。
+     *
+     * @param req 事件处置请求
+     * @return 是否更新成功
+     */
     @Docking
     public boolean makeEventProcess(EventProcessReq req) {
         String tableDateStr = DateParamParseUtil.getDateTableStr(req.getTimestamp());
@@ -113,6 +172,11 @@ public class EventWebService {
         return true;
     }
 
+    /**
+     * 初始化路段事件统计容器。
+     *
+     * @return 路段统计列表
+     */
     public List<EventRoadRecordData> initRoadRecordList() {
         List<TunnelSecInfo> allTunnelSecInfo = secInfoService.getAllTunnelSecInfo();
         return allTunnelSecInfo.stream().map(interval -> {
@@ -126,6 +190,9 @@ public class EventWebService {
         }).toList();
     }
 
+    /**
+     * 将事件计入对应路段统计。
+     */
     public void recordEventToRoad(List<EventRoadRecordData> roadRecordList, CarEvent carEvent) {
         roadRecordList.stream().filter(record -> {
             double mileage = Double.parseDouble(carEvent.getStartMileage());
@@ -135,6 +202,9 @@ public class EventWebService {
         });
     }
 
+    /**
+     * 将事件计入总统计。
+     */
     public void recordEventToStatistic(EventStatisticData eventStatisticData, CarEvent carEvent) {
         eventStatisticData.setTotal(eventStatisticData.getTotal() + 1);
         if (carEvent.getStatus() == EVENT_STATUS_PENDING) {
@@ -148,6 +218,12 @@ public class EventWebService {
         }
     }
 
+    /**
+     * 获取事件信息卡片数据。
+     *
+     * @param timestamp 毫秒时间戳
+     * @return 事件信息卡片
+     */
     public static EventInfoDataResp collectEventInfoData(long timestamp) {
         String tableDateStr = DateParamParseUtil.getDateTableStr(timestamp);
         List<TunnelSecInfo> allTunnelSecInfo = secInfoService.getAllTunnelSecInfo();
@@ -191,6 +267,12 @@ public class EventWebService {
         return eventInfoDataResp;
     }
 
+    /**
+     * 获取事件数量统计。
+     *
+     * @param timestamp 毫秒时间戳
+     * @return 分断面事件数量
+     */
     public List<EventCountDataResp> collectEventCountData(long timestamp) {
         List<CarEvent> listByTarget = carEventService.getListByTarget(
                 DateParamParseUtil.getDateTableStr(timestamp),
@@ -224,6 +306,12 @@ public class EventWebService {
 
         return eventCountDataRespList;
     }
+    /**
+     * 查询事件对应车道线数据。
+     *
+     * @param timestamp 毫秒时间戳
+     * @return 车道线列表
+     */
     public List<LanelineResp> collectLanelineData(long timestamp){
         EventInfoDataResp eventInfoData = collectEventInfoData(timestamp);
         if (eventInfoData == null){
@@ -240,6 +328,113 @@ public class EventWebService {
             );
         }).toList();
         return lanelineRespList;
+    }
+
+    /**
+     * 转换为事件检测记录对象。
+     */
+    private EventDetectionRecord toEventDetectionRecord(CarEvent event, List<RoadSegmentStatic> segmentList) {
+        return new EventDetectionRecord(
+                getEventId(event),
+                DateParamParseUtil.getEventDateTimeDataStr(event.getStartTimestamp() == null ? 0L : event.getStartTimestamp()),
+                getDirectionByMileage(event.getStartMileage(), segmentList),
+                getEventLocation(event.getStartMileage()),
+                getEventTypeText(event.getEventType()),
+                event.getId(),
+                getWarningStatusText(event.getStatus())
+        );
+    }
+
+    /**
+     * 获取事件唯一标识。
+     */
+    private String getEventId(CarEvent event) {
+        if (event.getUuid() != null) {
+            return Long.toString(event.getUuid());
+        }
+        if (event.getTrajId() != null) {
+            return Long.toString(event.getTrajId());
+        }
+        return "";
+    }
+
+    /**
+     * 解析事件位置文本。
+     */
+    private String getEventLocation(String mileageText) {
+        double mileage = parseMileage(mileageText);
+        if (mileage < 0) {
+            return "";
+        }
+        return DataParamParseUtil.getPositionStr(mileage);
+    }
+
+    /**
+     * 根据里程匹配行驶方向。
+     */
+    private String getDirectionByMileage(String mileageText, List<RoadSegmentStatic> segmentList) {
+        if (CollectionEmptyUtil.forList(segmentList)) {
+            return "未知";
+        }
+        double mileage = parseMileage(mileageText);
+        if (mileage < 0) {
+            return "未知";
+        }
+        for (RoadSegmentStatic segment : segmentList) {
+            if (segment.getStartLocationM() == null) {
+                continue;
+            }
+            int start = segment.getStartLocationM();
+            int end = start + 1000;
+            if (mileage >= start && mileage < end) {
+                return segment.getDirection() == null ? "未知" : segment.getDirection();
+            }
+        }
+        return "未知";
+    }
+
+    /**
+     * 事件类型编码转文本。
+     */
+    private String getEventTypeText(Integer eventType) {
+        if (eventType == null) {
+            return "其他";
+        }
+        return switch (eventType) {
+            case EVENT_TYPE_AGAINST -> "逆行";
+            case EVENT_TYPE_PARKING -> "停车";
+            case EVENT_TYPE_SLOW -> "低速";
+            case EVENT_TYPE_FAST -> "超速";
+            case EVENT_TYPE_OCCUPY -> "占道";
+            default -> "其他";
+        };
+    }
+
+    /**
+     * 预警状态编码转文本。
+     */
+    private String getWarningStatusText(Integer status) {
+        if (status == null) {
+            return "未知";
+        }
+        if (status == EVENT_STATUS_FINISHED) {
+            return "已处理";
+        }
+        return "未处理";
+    }
+
+    /**
+     * 解析里程文本为数值。
+     */
+    private double parseMileage(String mileageText) {
+        if (mileageText == null || mileageText.isBlank()) {
+            return -1;
+        }
+        try {
+            return Double.parseDouble(mileageText);
+        } catch (Exception ignored) {
+            return -1;
+        }
     }
 
 }
