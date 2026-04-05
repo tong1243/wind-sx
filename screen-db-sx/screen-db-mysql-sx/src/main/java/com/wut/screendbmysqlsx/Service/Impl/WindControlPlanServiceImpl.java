@@ -9,10 +9,10 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
-@Service
 /**
- * 管控方案服务实现。
+ * 管控方案持久化服务实现。
  */
+@Service
 public class WindControlPlanServiceImpl extends ServiceImpl<WindControlPlanMapper, WindControlPlan> implements WindControlPlanService {
     private final WindControlPlanMapper windControlPlanMapper;
 
@@ -29,7 +29,6 @@ public class WindControlPlanServiceImpl extends ServiceImpl<WindControlPlanMappe
 
     @Override
     public void upsertByPlanId(String planId, String segment, String status, long planTimestamp, String payloadJson, long updatedAt) {
-        // 按 plan_id 唯一键进行幂等写入，避免重复插入。
         WindControlPlan existing = getByPlanId(planId);
         if (existing == null) {
             WindControlPlan insert = new WindControlPlan();
@@ -55,5 +54,12 @@ public class WindControlPlanServiceImpl extends ServiceImpl<WindControlPlanMappe
         LambdaQueryWrapper<WindControlPlan> wrapper = new LambdaQueryWrapper<>();
         wrapper.orderByDesc(WindControlPlan::getUpdatedAt).last("limit " + limit);
         return windControlPlanMapper.selectList(wrapper);
+    }
+
+    @Override
+    public boolean removeByPlanId(String planId) {
+        LambdaQueryWrapper<WindControlPlan> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(WindControlPlan::getPlanId, planId);
+        return windControlPlanMapper.delete(wrapper) > 0;
     }
 }

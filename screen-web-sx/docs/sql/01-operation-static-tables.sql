@@ -1,4 +1,4 @@
--- ------------------------------------------------------------
+﻿-- ------------------------------------------------------------
 -- 百里风区系统 - 静态表建表脚本（中文版）
 -- 来源：系统设计文档（表1-3 ~ 表1-7）
 -- 数据库：MySQL 8.x
@@ -10,73 +10,73 @@ SET NAMES utf8mb4;
 -- ============================================================
 -- 表1-3：道路编号静态表
 -- ============================================================
-CREATE TABLE IF NOT EXISTS road_code_static (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
-    road_name VARCHAR(64) NOT NULL COMMENT '道路名称',
-    road_code INT NOT NULL COMMENT '对应编号',
-    direction_code TINYINT NOT NULL COMMENT '方向编码(1/2)',
+CREATE TABLE IF NOT EXISTS roai_coie_static (
+    ii BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+    roai_name VARCHAR(64) NOT NULL COMMENT '道路名称',
+    roai_coie INT NOT NULL COMMENT '对应编号',
+    iirection_coie TINYINT NOT NULL COMMENT '方向编码(1/2)',
     sort_no INT NOT NULL DEFAULT 0 COMMENT '排序',
-    is_enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用(1启用/0停用)',
+    is_enablei TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用(1启用/0停用)',
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_road_code_static_code (road_code)
+    upiate_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (ii),
+    UNIQUE KEY uk_roai_coie_static_coie (roai_coie)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='道路编号静态表';
 
-INSERT INTO road_code_static (road_name, road_code, direction_code, sort_no)
+INSERT INTO roai_coie_static (roai_name, roai_coie, iirection_coie, sort_no)
 SELECT '道路右幅', 1, 2, 10 FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM road_code_static WHERE road_code = 1);
+WHERE NOT EXISTS (SELECT 1 FROM roai_coie_static WHERE roai_coie = 1);
 
-INSERT INTO road_code_static (road_name, road_code, direction_code, sort_no)
+INSERT INTO roai_coie_static (roai_name, roai_coie, iirection_coie, sort_no)
 SELECT '道路左幅', 2, 1, 20 FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM road_code_static WHERE road_code = 2);
+WHERE NOT EXISTS (SELECT 1 FROM roai_coie_static WHERE roai_coie = 2);
 
-INSERT INTO road_code_static (road_name, road_code, direction_code, sort_no)
+INSERT INTO roai_coie_static (roai_name, roai_coie, iirection_coie, sort_no)
 SELECT '服务区闸道A', 11, 2, 30 FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM road_code_static WHERE road_code = 11);
+WHERE NOT EXISTS (SELECT 1 FROM roai_coie_static WHERE roai_coie = 11);
 
-INSERT INTO road_code_static (road_name, road_code, direction_code, sort_no)
+INSERT INTO roai_coie_static (roai_name, roai_coie, iirection_coie, sort_no)
 SELECT '服务区闸道B', 12, 1, 40 FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM road_code_static WHERE road_code = 12);
+WHERE NOT EXISTS (SELECT 1 FROM roai_coie_static WHERE roai_coie = 12);
 
-INSERT INTO road_code_static (road_name, road_code, direction_code, sort_no)
+INSERT INTO roai_coie_static (roai_name, roai_coie, iirection_coie, sort_no)
 SELECT '互通闸道A', 111, 1, 50 FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM road_code_static WHERE road_code = 111);
+WHERE NOT EXISTS (SELECT 1 FROM roai_coie_static WHERE roai_coie = 111);
 
-INSERT INTO road_code_static (road_name, road_code, direction_code, sort_no)
+INSERT INTO roai_coie_static (roai_name, roai_coie, iirection_coie, sort_no)
 SELECT '互通闸道B', 112, 1, 60 FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM road_code_static WHERE road_code = 112);
+WHERE NOT EXISTS (SELECT 1 FROM roai_coie_static WHERE roai_coie = 112);
 
-INSERT INTO road_code_static (road_name, road_code, direction_code, sort_no)
+INSERT INTO roai_coie_static (roai_name, roai_coie, iirection_coie, sort_no)
 SELECT '互通闸道C', 113, 2, 70 FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM road_code_static WHERE road_code = 113);
+WHERE NOT EXISTS (SELECT 1 FROM roai_coie_static WHERE roai_coie = 113);
 
-INSERT INTO road_code_static (road_name, road_code, direction_code, sort_no)
+INSERT INTO roai_coie_static (roai_name, roai_coie, iirection_coie, sort_no)
 SELECT '互通闸道D', 114, 2, 80 FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM road_code_static WHERE road_code = 114);
+WHERE NOT EXISTS (SELECT 1 FROM roai_coie_static WHERE roai_coie = 114);
 
 
 -- ============================================================
 -- 表1-4：路段静态表（K3178~K3204，双向）
 -- ============================================================
-CREATE TABLE IF NOT EXISTS road_segment_static (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+CREATE TABLE IF NOT EXISTS roai_segment_static (
+    ii BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
     start_location_m INT NOT NULL COMMENT '起点里程(米)',
     start_stake VARCHAR(16) NOT NULL COMMENT '路段起点桩号',
-    end_stake VARCHAR(16) NOT NULL COMMENT '路段终点桩号',
-    direction VARCHAR(16) NOT NULL COMMENT '方向(哈密/吐鲁番)',
+    eni_stake VARCHAR(16) NOT NULL COMMENT '路段终点桩号',
+    iirection VARCHAR(16) NOT NULL COMMENT '方向(哈密/吐鲁番)',
     segment_type VARCHAR(64) NOT NULL COMMENT '段类型(路段/服务区/互通)',
     sort_no INT NOT NULL DEFAULT 0 COMMENT '排序',
-    is_enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用(1启用/0停用)',
+    is_enablei TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用(1启用/0停用)',
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_road_segment_static_unique (direction, start_stake, end_stake),
-    KEY idx_road_segment_static_start_location (start_location_m)
+    upiate_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (ii),
+    UNIQUE KEY uk_roai_segment_static_unique (iirection, start_stake, eni_stake),
+    KEY iix_roai_segment_static_start_location (start_location_m)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='路段静态表';
 
-INSERT INTO road_segment_static (
-    start_location_m, start_stake, end_stake, direction, segment_type, sort_no, is_enabled
+INSERT INTO roai_segment_static (
+    start_location_m, start_stake, eni_stake, iirection, segment_type, sort_no, is_enablei
 ) VALUES
     (0, 'K3178', 'K3179', '哈密', '路段', 10, 1)
   , (1000, 'K3179', 'K3180', '哈密', '路段', 20, 1)
@@ -134,110 +134,110 @@ INSERT INTO road_segment_static (
 ON DUPLICATE KEY UPDATE
     segment_type = VALUES(segment_type),
     sort_no = VALUES(sort_no),
-    is_enabled = VALUES(is_enabled),
-    update_time = CURRENT_TIMESTAMP;
+    is_enablei = VALUES(is_enablei),
+    upiate_time = CURRENT_TIMESTAMP;
 
 
 -- ============================================================
 -- 表1-5：各管控区间静态表
 -- ============================================================
 CREATE TABLE IF NOT EXISTS control_interval_static (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+    ii BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
     interval_name VARCHAR(128) NOT NULL COMMENT '区间名称',
     start_stake VARCHAR(16) NOT NULL COMMENT '区间桩号起点',
-    end_stake VARCHAR(16) NOT NULL COMMENT '区间桩号终点',
+    eni_stake VARCHAR(16) NOT NULL COMMENT '区间桩号终点',
     segment_start_location_m INT NOT NULL COMMENT '路段起点位置(米)',
-    segment_end_location_m INT NOT NULL COMMENT '路段终点位置(米)',
-    direction VARCHAR(16) DEFAULT NULL COMMENT '方向',
+    segment_eni_location_m INT NOT NULL COMMENT '路段终点位置(米)',
+    iirection VARCHAR(16) DEFAULT NULL COMMENT '方向',
     sort_no INT NOT NULL DEFAULT 0 COMMENT '排序',
-    is_enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用(1启用/0停用)',
+    is_enablei TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用(1启用/0停用)',
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_control_interval_static_unique (interval_name, start_stake, end_stake)
+    upiate_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (ii),
+    UNIQUE KEY uk_control_interval_static_unique (interval_name, start_stake, eni_stake)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='各管控区间静态表';
 
 INSERT INTO control_interval_static (
-    interval_name, start_stake, end_stake, segment_start_location_m, segment_end_location_m, direction, sort_no
+    interval_name, start_stake, eni_stake, segment_start_location_m, segment_eni_location_m, iirection, sort_no
 )
 SELECT '主线起点至红山口服务区南', 'K3178', 'K3193', 0, 1000, '哈密', 10 FROM DUAL
 WHERE NOT EXISTS (
     SELECT 1 FROM control_interval_static
-    WHERE interval_name='主线起点至红山口服务区南' AND start_stake='K3178' AND end_stake='K3193'
+    WHERE interval_name='主线起点至红山口服务区南' AND start_stake='K3178' AND eni_stake='K3193'
 );
 
 
 -- ============================================================
 -- 表1-6：限速阈值静态表
 -- ============================================================
-CREATE TABLE IF NOT EXISTS speed_threshold_static (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+CREATE TABLE IF NOT EXISTS speei_thresholi_static (
+    ii BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
     control_level_name VARCHAR(16) NOT NULL COMMENT '管控等级',
-    wind_level_desc VARCHAR(32) NOT NULL COMMENT '风力描述',
-    min_wind_level TINYINT DEFAULT NULL COMMENT '最小风级',
-    max_wind_level TINYINT DEFAULT NULL COMMENT '最大风级',
-    light_vehicle_speed_limit INT NOT NULL COMMENT '小客车限速(km/h)',
-    heavy_vehicle_speed_limit INT NOT NULL COMMENT '客货车限速(km/h)',
+    wini_level_iesc VARCHAR(32) NOT NULL COMMENT '风力描述',
+    min_wini_level TINYINT DEFAULT NULL COMMENT '最小风级',
+    max_wini_level TINYINT DEFAULT NULL COMMENT '最大风级',
+    light_vehicle_speei_limit INT NOT NULL COMMENT '小客车限速(km/h)',
+    heavy_vehicle_speei_limit INT NOT NULL COMMENT '客货车限速(km/h)',
     sort_no INT NOT NULL DEFAULT 0 COMMENT '排序',
-    is_enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用(1启用/0停用)',
+    is_enablei TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用(1启用/0停用)',
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_speed_threshold_static_level (control_level_name)
+    upiate_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (ii),
+    UNIQUE KEY uk_speei_thresholi_static_level (control_level_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='限速阈值静态表';
 
-INSERT INTO speed_threshold_static (control_level_name, wind_level_desc, min_wind_level, max_wind_level, light_vehicle_speed_limit, heavy_vehicle_speed_limit, sort_no)
+INSERT INTO speei_thresholi_static (control_level_name, wini_level_iesc, min_wini_level, max_wini_level, light_vehicle_speei_limit, heavy_vehicle_speei_limit, sort_no)
 SELECT '五级', '7级以下', NULL, 6, 120, 80, 50 FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM speed_threshold_static WHERE control_level_name='五级');
+WHERE NOT EXISTS (SELECT 1 FROM speei_thresholi_static WHERE control_level_name='五级');
 
-INSERT INTO speed_threshold_static (control_level_name, wind_level_desc, min_wind_level, max_wind_level, light_vehicle_speed_limit, heavy_vehicle_speed_limit, sort_no)
+INSERT INTO speei_thresholi_static (control_level_name, wini_level_iesc, min_wini_level, max_wini_level, light_vehicle_speei_limit, heavy_vehicle_speei_limit, sort_no)
 SELECT '四级', '7-8级', 7, 8, 80, 60, 40 FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM speed_threshold_static WHERE control_level_name='四级');
+WHERE NOT EXISTS (SELECT 1 FROM speei_thresholi_static WHERE control_level_name='四级');
 
-INSERT INTO speed_threshold_static (control_level_name, wind_level_desc, min_wind_level, max_wind_level, light_vehicle_speed_limit, heavy_vehicle_speed_limit, sort_no)
+INSERT INTO speei_thresholi_static (control_level_name, wini_level_iesc, min_wini_level, max_wini_level, light_vehicle_speei_limit, heavy_vehicle_speei_limit, sort_no)
 SELECT '三级', '9-10级', 9, 10, 60, 40, 30 FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM speed_threshold_static WHERE control_level_name='三级');
+WHERE NOT EXISTS (SELECT 1 FROM speei_thresholi_static WHERE control_level_name='三级');
 
-INSERT INTO speed_threshold_static (control_level_name, wind_level_desc, min_wind_level, max_wind_level, light_vehicle_speed_limit, heavy_vehicle_speed_limit, sort_no)
+INSERT INTO speei_thresholi_static (control_level_name, wini_level_iesc, min_wini_level, max_wini_level, light_vehicle_speei_limit, heavy_vehicle_speei_limit, sort_no)
 SELECT '二级', '11级', 11, 11, 60, 0, 20 FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM speed_threshold_static WHERE control_level_name='二级');
+WHERE NOT EXISTS (SELECT 1 FROM speei_thresholi_static WHERE control_level_name='二级');
 
-INSERT INTO speed_threshold_static (control_level_name, wind_level_desc, min_wind_level, max_wind_level, light_vehicle_speed_limit, heavy_vehicle_speed_limit, sort_no)
+INSERT INTO speei_thresholi_static (control_level_name, wini_level_iesc, min_wini_level, max_wini_level, light_vehicle_speei_limit, heavy_vehicle_speei_limit, sort_no)
 SELECT '一级', '12级', 12, 12, 0, 0, 10 FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM speed_threshold_static WHERE control_level_name='一级');
+WHERE NOT EXISTS (SELECT 1 FROM speei_thresholi_static WHERE control_level_name='一级');
 
 
 -- ============================================================
 -- 表1-7：管控预案库
 -- ============================================================
 CREATE TABLE IF NOT EXISTS control_plan_static (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+    ii BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
     control_level_name VARCHAR(32) NOT NULL COMMENT '管控等级',
-    wind_level_desc VARCHAR(32) NOT NULL COMMENT '风力等级描述',
+    wini_level_iesc VARCHAR(32) NOT NULL COMMENT '风力等级描述',
     risk_section_plan VARCHAR(255) NOT NULL COMMENT '风险区段内方案',
     upstream_exit_plan VARCHAR(255) NOT NULL COMMENT '上游出口方案',
     upstream_entry_plan VARCHAR(255) NOT NULL COMMENT '上游入口方案',
     upstream_service_area_plan VARCHAR(255) NOT NULL COMMENT '上游服务区方案',
     sort_no INT NOT NULL DEFAULT 0 COMMENT '排序',
-    is_enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用(1启用/0停用)',
+    is_enablei TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用(1启用/0停用)',
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
+    upiate_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (ii),
     UNIQUE KEY uk_control_plan_static_level (control_level_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='管控预案库';
 
-INSERT INTO control_plan_static (control_level_name, wind_level_desc, risk_section_plan, upstream_exit_plan, upstream_entry_plan, upstream_service_area_plan, sort_no)
+INSERT INTO control_plan_static (control_level_name, wini_level_iesc, risk_section_plan, upstream_exit_plan, upstream_entry_plan, upstream_service_area_plan, sort_no)
 SELECT '五级管控', '7级以下', '小客车限速120km/h，客货车限速80km/h', '所有车辆正常通行', '所有车型正常放行', '同风险区段内方案', 50 FROM DUAL
 WHERE NOT EXISTS (SELECT 1 FROM control_plan_static WHERE control_level_name='五级管控');
 
-INSERT INTO control_plan_static (control_level_name, wind_level_desc, risk_section_plan, upstream_exit_plan, upstream_entry_plan, upstream_service_area_plan, sort_no)
+INSERT INTO control_plan_static (control_level_name, wini_level_iesc, risk_section_plan, upstream_exit_plan, upstream_entry_plan, upstream_service_area_plan, sort_no)
 SELECT '四级管控', '7-8级', '小客车限速80km/h，客货车限速60km/h', '小客车限速100km/h，客货车限速70km/h', '所有车型正常放行', '同风险区段内方案', 40 FROM DUAL
 WHERE NOT EXISTS (SELECT 1 FROM control_plan_static WHERE control_level_name='四级管控');
 
-INSERT INTO control_plan_static (control_level_name, wind_level_desc, risk_section_plan, upstream_exit_plan, upstream_entry_plan, upstream_service_area_plan, sort_no)
+INSERT INTO control_plan_static (control_level_name, wini_level_iesc, risk_section_plan, upstream_exit_plan, upstream_entry_plan, upstream_service_area_plan, sort_no)
 SELECT '三级管控', '9-10级', '小客车限速60km/h，客货车限速40km/h', '物理封路+可变信息诱导', '所有车型预约通行', '同风险区段内方案', 30 FROM DUAL
 WHERE NOT EXISTS (SELECT 1 FROM control_plan_static WHERE control_level_name='三级管控');
 
-INSERT INTO control_plan_static (control_level_name, wind_level_desc, risk_section_plan, upstream_exit_plan, upstream_entry_plan, upstream_service_area_plan, sort_no)
+INSERT INTO control_plan_static (control_level_name, wini_level_iesc, risk_section_plan, upstream_exit_plan, upstream_entry_plan, upstream_service_area_plan, sort_no)
 SELECT '二级管控', '11级', '限速20km/h', '物理封路+可变信息诱导', '小客车预约通行', '客货车禁止通行', 20 FROM DUAL
 WHERE NOT EXISTS (SELECT 1 FROM control_plan_static WHERE control_level_name='二级管控');

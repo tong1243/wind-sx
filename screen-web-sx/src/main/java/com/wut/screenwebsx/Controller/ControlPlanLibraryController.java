@@ -5,7 +5,7 @@ import com.wut.screencommonsx.Request.Wind.UpdateDispatchPlanReq;
 import com.wut.screencommonsx.Request.Wind.UpdateVmsContentReq;
 import com.wut.screencommonsx.Response.DefaultDataResp;
 import com.wut.screencommonsx.Util.ModelTransformUtil;
-import com.wut.screenwebsx.Service.WindControlCenterService;
+import com.wut.screenwebsx.Service.WindControlPlanLibraryService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,18 +18,21 @@ import java.util.Map;
  * 4.4 管控预案库接口。
  */
 public class ControlPlanLibraryController {
-    private final WindControlCenterService windControlCenterService;
+    private final WindControlPlanLibraryService planLibraryService;
 
-    public ControlPlanLibraryController(WindControlCenterService windControlCenterService) {
-        this.windControlCenterService = windControlCenterService;
+    /**
+     * 构造控制器并注入预案库业务服务，负责 4.4 模块 HTTP 请求分发。
+     */
+    public ControlPlanLibraryController(WindControlPlanLibraryService planLibraryService) {
+        this.planLibraryService = planLibraryService;
     }
 
     /**
-     * 获取预案原则说明。
+     * 获取管控总体原则说明。
      */
     @GetMapping("/control-principles")
     public DefaultDataResp getPrinciples() {
-        return ModelTransformUtil.getDefaultDataInstance("control principles", windControlCenterService.getControlPrinciples());
+        return ModelTransformUtil.getDefaultDataInstance("control principles", planLibraryService.getControlPrinciples());
     }
 
     /**
@@ -37,7 +40,7 @@ public class ControlPlanLibraryController {
      */
     @GetMapping("/control-plans")
     public DefaultDataResp listControlPlans() {
-        return ModelTransformUtil.getDefaultDataInstance("control plans", windControlCenterService.listControlPlans());
+        return ModelTransformUtil.getDefaultDataInstance("control plans", planLibraryService.listControlPlans());
     }
 
     /**
@@ -52,7 +55,7 @@ public class ControlPlanLibraryController {
         if (req.getPassengerSpeedLimit() != null) body.put("passengerSpeedLimit", req.getPassengerSpeedLimit());
         if (req.getFreightSpeedLimit() != null) body.put("freightSpeedLimit", req.getFreightSpeedLimit());
         if (req.getDescription() != null) body.put("description", req.getDescription());
-        return ModelTransformUtil.getDefaultDataInstance("control plan updated", windControlCenterService.updateControlPlanLevel(level, body));
+        return ModelTransformUtil.getDefaultDataInstance("control plan updated", planLibraryService.updateControlPlanLevel(level, body));
     }
 
     /**
@@ -60,7 +63,7 @@ public class ControlPlanLibraryController {
      */
     @GetMapping("/vms-contents")
     public DefaultDataResp listVmsContent() {
-        return ModelTransformUtil.getDefaultDataInstance("vms contents", windControlCenterService.listVmsContent());
+        return ModelTransformUtil.getDefaultDataInstance("vms contents", planLibraryService.listVmsContent());
     }
 
     /**
@@ -69,7 +72,7 @@ public class ControlPlanLibraryController {
     @PutMapping("/vms-contents/{level}")
     public DefaultDataResp updateVmsContent(@PathVariable("level") int level,
                                             @Valid @RequestBody UpdateVmsContentReq req) {
-        return ModelTransformUtil.getDefaultDataInstance("vms content updated", windControlCenterService.updateVmsContent(level, req.getContent()));
+        return ModelTransformUtil.getDefaultDataInstance("vms content updated", planLibraryService.updateVmsContent(level, req.getContent()));
     }
 
     /**
@@ -77,7 +80,7 @@ public class ControlPlanLibraryController {
      */
     @GetMapping("/dispatch-plans")
     public DefaultDataResp listDispatchPlans() {
-        return ModelTransformUtil.getDefaultDataInstance("dispatch plans", windControlCenterService.listDispatchPlans());
+        return ModelTransformUtil.getDefaultDataInstance("dispatch plans", planLibraryService.listDispatchPlans());
     }
 
     /**
@@ -90,6 +93,7 @@ public class ControlPlanLibraryController {
         if (req.getContactStaff() != null) body.put("contactStaff", req.getContactStaff());
         if (req.getTeamId() != null) body.put("teamId", req.getTeamId());
         if (req.getWarehouse() != null) body.put("warehouse", req.getWarehouse());
-        return ModelTransformUtil.getDefaultDataInstance("dispatch plan updated", windControlCenterService.updateDispatchPlan(segment, body));
+        return ModelTransformUtil.getDefaultDataInstance("dispatch plan updated", planLibraryService.updateDispatchPlan(segment, body));
     }
 }
+

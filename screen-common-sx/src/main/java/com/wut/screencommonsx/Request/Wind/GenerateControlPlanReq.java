@@ -28,4 +28,12 @@ public class GenerateControlPlanReq {
     @Min(0)
     @Max(12)
     private Integer forecastMaxWindLevel;
+
+    @Min(1)
+    @Max(2)
+    private Integer direction;
+
+    @Min(1)
+    @Max(24)
+    private Integer durationHours;
 }
