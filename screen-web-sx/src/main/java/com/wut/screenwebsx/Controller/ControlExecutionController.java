@@ -47,8 +47,16 @@ public class ControlExecutionController {
      * @param status 可选状态过滤：DRAFT/PUBLISHED/CLOSED
      * @return 方案列表
      */
-    @GetMapping("/control-plans")
+    @GetMapping("/generated-control-plans")
     public DefaultDataResp listControlPlans(@RequestParam(value = "status", required = false) String status) {
+        return ModelTransformUtil.getDefaultDataInstance("control plans", executionService.listGeneratedPlans(status));
+    }
+
+    /**
+     * 兼容旧路由：仅当携带 status 参数时，视为“已生成方案列表”查询。
+     */
+    @GetMapping(value = "/control-plans", params = "status")
+    public DefaultDataResp listControlPlansCompat(@RequestParam("status") String status) {
         return ModelTransformUtil.getDefaultDataInstance("control plans", executionService.listGeneratedPlans(status));
     }
 
@@ -58,7 +66,7 @@ public class ControlExecutionController {
      * @param planId 方案ID
      * @return 方案详情
      */
-    @GetMapping("/control-plans/{planId}")
+    @GetMapping("/control-plans/{planId:[0-9a-fA-F]{8}}")
     public DefaultDataResp getControlPlan(@PathVariable("planId") String planId) {
         return ModelTransformUtil.getDefaultDataInstance("control plan", executionService.getGeneratedPlan(planId));
     }
@@ -96,7 +104,7 @@ public class ControlExecutionController {
      * @param body 编辑内容
      * @return 编辑后的方案
      */
-    @PutMapping("/control-plans/{planId}")
+    @PutMapping("/control-plans/{planId:[0-9a-fA-F]{8}}")
     public DefaultDataResp updateControlPlan(@PathVariable("planId") String planId,
                                              @RequestBody Map<String, Object> body) {
         return ModelTransformUtil.getDefaultDataInstance("control plan updated", executionService.updateDraftPlan(planId, body));
@@ -112,7 +120,7 @@ public class ControlExecutionController {
      * @param req 状态变更请求
      * @return 变更后的方案信息
      */
-    @PatchMapping("/control-plans/{planId}")
+    @PatchMapping("/control-plans/{planId:[0-9a-fA-F]{8}}")
     public DefaultDataResp updateControlPlanStatus(@PathVariable("planId") String planId,
                                                    @Valid @RequestBody UpdateControlPlanStatusReq req) {
         String status = req.getStatus().trim().toUpperCase();
@@ -133,7 +141,7 @@ public class ControlExecutionController {
      * @param planId 方案ID
      * @return 删除结果
      */
-    @DeleteMapping("/control-plans/{planId}")
+    @DeleteMapping("/control-plans/{planId:[0-9a-fA-F]{8}}")
     public DefaultMsgResp deleteControlPlan(@PathVariable("planId") String planId) {
         boolean ok = executionService.deleteDraftPlan(planId);
         return ModelTransformUtil.getDefaultMsgInstance(ok, "control plan deleted", ok ? "ok" : "not found");

@@ -46,7 +46,7 @@ public class ControlPlanLibraryController {
     /**
      * 更新指定等级的管控预案。
      */
-    @PutMapping("/control-plans/{level}")
+    @PutMapping("/control-plans/{level:\\d+}")
     public DefaultDataResp updateControlPlan(@PathVariable("level") int level,
                                              @Valid @RequestBody UpdateControlPlanReq req) {
         Map<String, Object> body = new LinkedHashMap<>();
