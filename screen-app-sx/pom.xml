@@ -31,10 +31,6 @@
         </dependency>
         <dependency>
             <groupId>com.wut</groupId>
-            <artifactId>screen-db-sx</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.wut</groupId>
             <artifactId>screen-db-mysql-sx</artifactId>
         </dependency>
         <dependency>
