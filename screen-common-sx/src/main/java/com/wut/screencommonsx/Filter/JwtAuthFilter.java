@@ -28,6 +28,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     // 排除无需认证的接口
     private static final String[] EXCLUDE_URLS = {
             "/api/login", "/api/register", "/api/auth/send-code", "/api/auth/reset-password",
+            "/api/operation-maintenance", "/api/operation-maintenance/",
             "/socket/"
     };
 
