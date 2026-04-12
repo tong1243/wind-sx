@@ -89,11 +89,11 @@ public class WindImpactController {
     /**
      * 查询风力时空影响研判结果。
      *
-     * direction 取值规则：1=下行，2=上行；不传则返回双向数据。
+     * direction 取值规则：1=吐鲁番方向，2=哈密方向；不传则返回双向数据。
      *
      * @param timestamp 查询时间戳（毫秒）
      * @param periodType 可选时段类型
-     * @param direction 可选方向（1=下行，2=上行）
+     * @param direction 可选方向（1=吐鲁番方向，2=哈密方向）
      * @return 时空影响研判结果
      */
     @GetMapping("/wind-impacts/spatiotemporal")
@@ -113,7 +113,7 @@ public class WindImpactController {
      *
      * @param timestamp 查询时间戳（毫秒）
      * @param period 可选周期类型
-     * @param direction 可选方向（1=下行，2=上行）
+     * @param direction 可选方向（1=吐鲁番方向，2=哈密方向）
      * @return 风数据序列结果
      */
     @GetMapping("/wind-observations")

@@ -42,7 +42,7 @@ public class OperationMaintenanceResp {
         /** 实时速度（km/h）。 */
         private Integer speedKmh;
         /** 行驶方向。 */
-        private String direction;
+        private Integer direction;
         /** 上报时间。 */
         private LocalDateTime reportTime;
     }

@@ -55,10 +55,10 @@ import static com.wut.screenwebsx.Service.WindControlPersistenceService.CAT_WIND
 @Service
 public class WindControlStateService {
     /** 下行方向（哈密）。 */
-    private static final int DIRECTION_HAMI = 1;
+    private static final int DIRECTION_HAMI = 2;
 
     /** 上行方向（吐鲁番）。 */
-    private static final int DIRECTION_TURPAN = 2;
+    private static final int DIRECTION_TURPAN = 1;
 
     /** 最小风级。 */
     private static final int WIND_LEVEL_MIN = 1;
@@ -911,7 +911,7 @@ public class WindControlStateService {
             return defaultDirection;
         }
         String s = text.trim().toLowerCase(Locale.ROOT);
-        if ("2".equals(s)
+        if ("1".equals(s)
                 || "上行".equals(s)
                 || "吐鲁番".equals(s)
                 || "turpan".equals(s)
@@ -921,7 +921,7 @@ public class WindControlStateService {
                 || "right".equals(s)) {
             return DIRECTION_TURPAN;
         }
-        if ("1".equals(s)
+        if ("2".equals(s)
                 || "下行".equals(s)
                 || "哈密".equals(s)
                 || "hami".equals(s)

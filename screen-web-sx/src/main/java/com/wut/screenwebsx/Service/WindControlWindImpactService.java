@@ -26,15 +26,15 @@ import java.util.stream.Collectors;
  * 关键说明：
  * 1. 真实大风数据优先读取 wind_data 表；
  * 2. 当 wind_data 在目标时间窗无记录时，自动回退到共享状态中的原有演示/静态逻辑；
- * 3. 方向规范始终使用 1（下行/哈密）与 2（上行/吐鲁番）；
+ * 3. 方向规范始终使用 1（吐鲁番）与 2（哈密）；
  * 4. 交通量字段继续优先使用轨迹服务计算（4.1 已接 traj_near_real_*）。
  */
 @Service
 public class WindControlWindImpactService {
     /** 下行方向（哈密）。 */
-    private static final int DIRECTION_HAMI = 1;
+    private static final int DIRECTION_HAMI = 2;
     /** 上行方向（吐鲁番）。 */
-    private static final int DIRECTION_TURPAN = 2;
+    private static final int DIRECTION_TURPAN = 1;
     /** 4 小时时窗。 */
     private static final long WINDOW_4H_MS = 4L * 60 * 60 * 1000;
     /** 72 小时时窗。 */
@@ -446,7 +446,7 @@ public class WindControlWindImpactService {
             return null;
         }
         if (direction != DIRECTION_HAMI && direction != DIRECTION_TURPAN) {
-            throw new IllegalArgumentException("direction must be 1(down) or 2(up)");
+            throw new IllegalArgumentException("direction must be 1(turpan) or 2(hami)");
         }
         return direction;
     }
@@ -459,10 +459,10 @@ public class WindControlWindImpactService {
             return 0;
         }
         String s = directionText.trim().toLowerCase(Locale.ROOT);
-        if ("2".equals(s) || "上行".equals(s) || "吐鲁番".equals(s) || "turpan".equals(s) || "toez".equals(s) || "to_ez".equals(s)) {
+        if ("1".equals(s) || "上行".equals(s) || "吐鲁番".equals(s) || "turpan".equals(s) || "toez".equals(s) || "to_ez".equals(s)) {
             return DIRECTION_TURPAN;
         }
-        if ("1".equals(s) || "下行".equals(s) || "哈密".equals(s) || "hami".equals(s) || "towh".equals(s) || "to_wh".equals(s)) {
+        if ("2".equals(s) || "下行".equals(s) || "哈密".equals(s) || "hami".equals(s) || "towh".equals(s) || "to_wh".equals(s)) {
             return DIRECTION_HAMI;
         }
         return 0;

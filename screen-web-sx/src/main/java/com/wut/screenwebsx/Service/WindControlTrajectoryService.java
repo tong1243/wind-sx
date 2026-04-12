@@ -37,9 +37,9 @@ import java.util.regex.Pattern;
 @Service
 public class WindControlTrajectoryService {
     /** 下行方向（哈密）。 */
-    private static final int DIRECTION_HAMI = 1;
+    private static final int DIRECTION_HAMI = 2;
     /** 上行方向（吐鲁番）。 */
-    private static final int DIRECTION_TURPAN = 2;
+    private static final int DIRECTION_TURPAN = 1;
     /** 默认5分钟统计窗。 */
     private static final long WINDOW_5MIN_MS = 5L * 60 * 1000;
     /** 统计窗对应分钟数。 */
@@ -714,10 +714,10 @@ public class WindControlTrajectoryService {
         if (text.isBlank()) {
             return defaultValue;
         }
-        if ("2".equals(text) || "上行".equals(text) || "吐鲁番".equals(text) || "turpan".equals(text) || "toez".equals(text) || "to_ez".equals(text)) {
+        if ("1".equals(text) || "上行".equals(text) || "吐鲁番".equals(text) || "turpan".equals(text) || "toez".equals(text) || "to_ez".equals(text)) {
             return DIRECTION_TURPAN;
         }
-        if ("1".equals(text) || "下行".equals(text) || "哈密".equals(text) || "hami".equals(text) || "towh".equals(text) || "to_wh".equals(text)) {
+        if ("2".equals(text) || "下行".equals(text) || "哈密".equals(text) || "hami".equals(text) || "towh".equals(text) || "to_wh".equals(text)) {
             return DIRECTION_HAMI;
         }
         return defaultValue;

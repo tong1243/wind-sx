@@ -83,10 +83,10 @@ public class RoadStatusController {
      * 查询断面参数检测结果。
      *
      * direction 为可选参数：
-     * 1=下行，2=上行；不传时返回双向结果。
+     * 1=吐鲁番方向，2=哈密方向；不传时返回双向结果。
      *
      * @param timestamp 查询时间戳（毫秒）
-     * @param direction 方向过滤（可选，1=下行，2=上行）
+     * @param direction 方向过滤（可选，1=吐鲁番方向，2=哈密方向）
      * @return 断面检测结果列表
      */
     @GetMapping("/section-parameter-detections")

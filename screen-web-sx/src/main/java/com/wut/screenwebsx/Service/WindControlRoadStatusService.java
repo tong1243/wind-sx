@@ -111,10 +111,10 @@ public class WindControlRoadStatusService {
      * 处理逻辑：
      * 1. 优先使用轨迹窗口末时刻在途车辆与平均速度；
      * 2. 轨迹不可用时回退到规则生成；
-     * 3. 支持 direction 过滤（1 下行 / 2 上行）。
+     * 3. 支持 direction 过滤（1 吐鲁番 / 2 哈密）。
      *
      * @param timestamp 查询时间戳（毫秒）
-     * @param direction 可选方向过滤：1 下行，2 上行
+     * @param direction 可选方向过滤：1 吐鲁番，2 哈密
      * @return 断面检测结果列表
      */
     public List<Map<String, Object>> getSectionParameterDetections(long timestamp, Integer direction) {
@@ -157,7 +157,7 @@ public class WindControlRoadStatusService {
         }
         List<Map<String, Object>> result = new ArrayList<>();
         for (Map<String, Object> row : rows) {
-            int rowDirection = stateService.intValue(row.get("direction"), 1);
+            int rowDirection = stateService.intValue(row.get("direction"), 2);
             if (rowDirection == direction) {
                 result.add(row);
             }
@@ -206,7 +206,7 @@ public class WindControlRoadStatusService {
         List<Map<String, Object>> rows = new ArrayList<>();
         for (Map<String, Object> section : stateService.getFullLineWindSections()) {
             String segment = stateService.stringValue(section.get("segmentName"));
-            int direction = stateService.intValue(section.get("direction"), 1);
+            int direction = stateService.intValue(section.get("direction"), 2);
             int realWind = stateService.intValue(section.get("realWindLevel"), 6);
             int flow = Math.max(200, 1500 - realWind * 95);
             rows.add(stateService.row(
@@ -225,7 +225,7 @@ public class WindControlRoadStatusService {
     private List<Map<String, Object>> buildFallbackSectionParameterDetections(long timestamp, Integer direction) {
         List<Map<String, Object>> rows = new ArrayList<>();
         for (Map<String, Object> section : stateService.getFullLineWindSections()) {
-            int sectionDirection = stateService.intValue(section.get("direction"), 1);
+            int sectionDirection = stateService.intValue(section.get("direction"), 2);
             if (direction != null && sectionDirection != direction) {
                 continue;
             }

@@ -15,8 +15,8 @@ import java.util.regex.Pattern;
  */
 @Service
 public class WindControlExecutionService {
-    private static final int DIRECTION_HAMI = 1;
-    private static final int DIRECTION_TURPAN = 2;
+    private static final int DIRECTION_HAMI = 2;
+    private static final int DIRECTION_TURPAN = 1;
 
     private final DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
             .withZone(ZoneId.systemDefault());
@@ -527,7 +527,7 @@ public class WindControlExecutionService {
     }
 
     /**
-     * 校验并归一方向编码，仅允许 1（下行）和 2（上行），非法值抛出异常。
+     * 校验并归一方向编码，仅允许 1（吐鲁番）和 2（哈密），非法值抛出异常。
      */
     private int normalizeDirectionValue(int direction, int defaultValue) {
         if (direction == DIRECTION_HAMI || direction == DIRECTION_TURPAN) {
@@ -536,7 +536,7 @@ public class WindControlExecutionService {
         if (defaultValue == DIRECTION_HAMI || defaultValue == DIRECTION_TURPAN) {
             return defaultValue;
         }
-        throw new IllegalArgumentException("direction must be 1(down) or 2(up)");
+        throw new IllegalArgumentException("direction must be 1(turpan) or 2(hami)");
     }
 
     /**

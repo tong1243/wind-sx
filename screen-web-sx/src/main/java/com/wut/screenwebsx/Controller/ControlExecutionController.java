@@ -162,13 +162,13 @@ public class ControlExecutionController {
      * 查询或导出大风事件记录。
      *
      * 支持按路段、桩号区间、方向、方案、时间区间和等级筛选。
-     * direction 取值：1=下行，2=上行。
+     * direction 取值：1=吐鲁番方向，2=哈密方向。
      * format=csv 时返回 CSV 文本。
      *
      * @param segment 路段（可选）
      * @param startStake 起始桩号（可选）
      * @param endStake 结束桩号（可选）
-     * @param direction 方向（可选，1=下行，2=上行）
+     * @param direction 方向（可选，1=吐鲁番方向，2=哈密方向）
      * @param controlPlan 方案编码（可选）
      * @param startTime 开始时间（可选）
      * @param endTime 结束时间（可选）

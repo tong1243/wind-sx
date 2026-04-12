@@ -74,7 +74,7 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
             row.setLicensePlate(item.getCarLicense());
             row.setVehicleType(vehicleTypeMap.getOrDefault(item.getCarLicense(), "unknown"));
             row.setSpeedKmh(item.getRealSpeed());
-            row.setDirection(item.getDrivingDirection());
+            row.setDirection(toDirectionCode(item.getDrivingDirection()));
             row.setReportTime(item.getReportTime());
             return row;
         }).toList();
@@ -478,6 +478,37 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
 
     private boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
+    }
+
+    private Integer toDirectionCode(String rawDirection) {
+        if (!hasText(rawDirection)) {
+            return null;
+        }
+        String s = rawDirection.trim().toLowerCase();
+        if ("1".equals(s)
+                || "吐鲁番".equals(s)
+                || "上行".equals(s)
+                || "turpan".equals(s)
+                || "tulufan".equals(s)
+                || "toez".equals(s)
+                || "to_ez".equals(s)
+                || "hamimi_to_tuyugou".equals(s)
+                || "hami_to_turpan".equals(s)
+                || "to_turpan".equals(s)) {
+            return 1;
+        }
+        if ("2".equals(s)
+                || "哈密".equals(s)
+                || "下行".equals(s)
+                || "hami".equals(s)
+                || "towh".equals(s)
+                || "to_wh".equals(s)
+                || "tuyugou_to_hamimi".equals(s)
+                || "turpan_to_hami".equals(s)
+                || "to_hami".equals(s)) {
+            return 2;
+        }
+        return null;
     }
 
     private long safePageNo(long pageNo) {
