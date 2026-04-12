@@ -29,6 +29,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private static final String[] EXCLUDE_URLS = {
             "/api/login", "/api/register", "/api/auth/send-code", "/api/auth/reset-password",
             "/api/v1/operation-maintenance", "/api/v1/operation-maintenance/",
+            "/api/v1/wind-risk-speed", "/api/v1/wind-risk-sections", "/api/v1/wind-speed-limits",
             "/socket/"
     };
 

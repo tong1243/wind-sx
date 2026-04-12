@@ -1,0 +1,433 @@
+{
+  "info": {
+    "_postman_id": "f6d2b5ff-3e18-4b14-9381-9f9be0684f70",
+    "name": "wind-risk-speed-tests",
+    "description": "Test cases for wind risk section and speed limit hourly calculation APIs.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:12700"
+    },
+    {
+      "key": "startTimestamp",
+      "value": "1767196800000"
+    },
+    {
+      "key": "endTimestamp",
+      "value": "1767484800000"
+    },
+    {
+      "key": "inputDataSource",
+      "value": "ACCIDENT_WIND_MATRIX*"
+    },
+    {
+      "key": "outputDataSource",
+      "value": "MATLAB_RULE_V1"
+    }
+  ],
+  "item": [
+    {
+      "name": "Positive Cases",
+      "item": [
+        {
+          "name": "01 Calculate And Persist",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"Business code is 200\", function () {",
+                  "  pm.expect(json.code).to.eql(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Has calculation summary\", function () {",
+                  "  pm.expect(json.data).to.be.an(\"object\");",
+                  "  pm.expect(json.data.hourCount).to.be.a(\"number\");",
+                  "  pm.expect(json.data.riskRowCount).to.be.a(\"number\");",
+                  "  pm.expect(json.data.speedRowCount).to.be.a(\"number\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wind-risk-speed/calculate?startTimestamp={{startTimestamp}}&endTimestamp={{endTimestamp}}&inputDataSource={{inputDataSource}}&outputDataSource={{outputDataSource}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wind-risk-speed",
+                "calculate"
+              ],
+              "query": [
+                {
+                  "key": "startTimestamp",
+                  "value": "{{startTimestamp}}"
+                },
+                {
+                  "key": "endTimestamp",
+                  "value": "{{endTimestamp}}"
+                },
+                {
+                  "key": "inputDataSource",
+                  "value": "{{inputDataSource}}"
+                },
+                {
+                  "key": "outputDataSource",
+                  "value": "{{outputDataSource}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "02 Query Risk Sections (All Directions)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"Business code is 200\", function () {",
+                  "  pm.expect(json.code).to.eql(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Data is array\", function () {",
+                  "  pm.expect(Array.isArray(json.data)).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wind-risk-sections/hourly?startTimestamp={{startTimestamp}}&endTimestamp={{endTimestamp}}&outputDataSource={{outputDataSource}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wind-risk-sections",
+                "hourly"
+              ],
+              "query": [
+                {
+                  "key": "startTimestamp",
+                  "value": "{{startTimestamp}}"
+                },
+                {
+                  "key": "endTimestamp",
+                  "value": "{{endTimestamp}}"
+                },
+                {
+                  "key": "outputDataSource",
+                  "value": "{{outputDataSource}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "03 Query Speed Limits (All Directions)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"Business code is 200\", function () {",
+                  "  pm.expect(json.code).to.eql(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Data is array\", function () {",
+                  "  pm.expect(Array.isArray(json.data)).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wind-speed-limits/hourly?startTimestamp={{startTimestamp}}&endTimestamp={{endTimestamp}}&outputDataSource={{outputDataSource}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wind-speed-limits",
+                "hourly"
+              ],
+              "query": [
+                {
+                  "key": "startTimestamp",
+                  "value": "{{startTimestamp}}"
+                },
+                {
+                  "key": "endTimestamp",
+                  "value": "{{endTimestamp}}"
+                },
+                {
+                  "key": "outputDataSource",
+                  "value": "{{outputDataSource}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "04 Query Risk Sections (Direction=1)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"Business code is 200\", function () {",
+                  "  pm.expect(json.code).to.eql(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wind-risk-sections/hourly?startTimestamp={{startTimestamp}}&endTimestamp={{endTimestamp}}&direction=1&outputDataSource={{outputDataSource}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wind-risk-sections",
+                "hourly"
+              ],
+              "query": [
+                {
+                  "key": "startTimestamp",
+                  "value": "{{startTimestamp}}"
+                },
+                {
+                  "key": "endTimestamp",
+                  "value": "{{endTimestamp}}"
+                },
+                {
+                  "key": "direction",
+                  "value": "1"
+                },
+                {
+                  "key": "outputDataSource",
+                  "value": "{{outputDataSource}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "05 Query Speed Limits (Direction=2)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"Business code is 200\", function () {",
+                  "  pm.expect(json.code).to.eql(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wind-speed-limits/hourly?startTimestamp={{startTimestamp}}&endTimestamp={{endTimestamp}}&direction=2&outputDataSource={{outputDataSource}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wind-speed-limits",
+                "hourly"
+              ],
+              "query": [
+                {
+                  "key": "startTimestamp",
+                  "value": "{{startTimestamp}}"
+                },
+                {
+                  "key": "endTimestamp",
+                  "value": "{{endTimestamp}}"
+                },
+                {
+                  "key": "direction",
+                  "value": "2"
+                },
+                {
+                  "key": "outputDataSource",
+                  "value": "{{outputDataSource}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Negative Case",
+      "item": [
+        {
+          "name": "06 Calculate Invalid Range (start > end)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let body = null;",
+                  "try { body = pm.response.json(); } catch (e) {}",
+                  "",
+                  "pm.test(\"Request should fail\", function () {",
+                  "  if (body && Object.prototype.hasOwnProperty.call(body, \"code\")) {",
+                  "    pm.expect(body.code).to.not.eql(200);",
+                  "  } else {",
+                  "    pm.expect(pm.response.code).to.not.eql(200);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/wind-risk-speed/calculate?startTimestamp={{endTimestamp}}&endTimestamp={{startTimestamp}}&inputDataSource={{inputDataSource}}&outputDataSource={{outputDataSource}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "wind-risk-speed",
+                "calculate"
+              ],
+              "query": [
+                {
+                  "key": "startTimestamp",
+                  "value": "{{endTimestamp}}"
+                },
+                {
+                  "key": "endTimestamp",
+                  "value": "{{startTimestamp}}"
+                },
+                {
+                  "key": "inputDataSource",
+                  "value": "{{inputDataSource}}"
+                },
+                {
+                  "key": "outputDataSource",
+                  "value": "{{outputDataSource}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
