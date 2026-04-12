@@ -41,7 +41,7 @@ public class SecurityConfig {
     // 排除认证的URL
     private static final String[] EXCLUDE_URLS = {
             "/api/login", "/api/register", "/api/auth/**",
-            "/api/operation-maintenance/**",
+            "/api/v1/operation-maintenance/**",
             "/socket/**"
     };
 }

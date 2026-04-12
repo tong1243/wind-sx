@@ -23,7 +23,7 @@ import java.nio.charset.StandardCharsets;
  * 提供在途车辆、预约管理、车辆审核与导出能力。
  */
 @RestController
-@RequestMapping("/api/operation-maintenance")
+@RequestMapping("/api/v1/operation-maintenance")
 @RequiredArgsConstructor
 public class OperationMaintenanceController {
 
