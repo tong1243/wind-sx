@@ -1,4 +1,4 @@
-package com.wut.screenwebsx.Service.Impl;
+﻿package com.wut.screenwebsx.Service.Impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -31,32 +31,36 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 运维后台业务实现。
- * 覆盖在途车辆、预约记录、车辆审核及导出能力。
- */
+ * 杩愮淮鍚庡彴涓氬姟瀹炵幇銆? * 瑕嗙洊鍦ㄩ€旇溅杈嗐€侀绾﹁褰曘€佽溅杈嗗鏍稿強瀵煎嚭鑳藉姏銆? */
 @Service
 @RequiredArgsConstructor
 public class OperationMaintenanceServiceImpl implements OperationMaintenanceService {
-    /** 在途车辆 Mapper。 */
+    /** 鍦ㄩ€旇溅杈?Mapper銆?*/
     private final UcCarRealTimeMapper ucCarRealTimeMapper;
-    /** 预约记录 Mapper。 */
+    /** 棰勭害璁板綍 Mapper銆?*/
     private final TravelReservationMapper travelReservationMapper;
-    /** 车辆档案 Mapper。 */
+    /** 杞﹁締妗ｆ Mapper銆?*/
     private final CarInfoMapper carInfoMapper;
 
-    /** 审核拒绝项映射。 */
+    /** 瀹℃牳鎷掔粷椤规槧灏勩€?*/
     private static final Map<String, String> REJECT_ITEM_OPTIONS = buildRejectItemOptions();
 
     /**
-     * 查询在途车辆分页表格。
-     */
+     * 鏌ヨ鍦ㄩ€旇溅杈嗗垎椤佃〃鏍笺€?     */
     @Override
     public ApiResponse<?> getRealtimeVehicleTable(long pageNo, long pageSize, String vehicleId, String licensePlate, String direction) {
         LambdaQueryWrapper<UcCarRealTime> wrapper = new LambdaQueryWrapper<UcCarRealTime>()
                 .orderByDesc(UcCarRealTime::getReportTime)
                 .eq(hasText(vehicleId), UcCarRealTime::getUserPhone, vehicleId)
-                .eq(hasText(licensePlate), UcCarRealTime::getCarLicense, licensePlate)
-                .eq(hasText(direction), UcCarRealTime::getDrivingDirection, direction);
+                .eq(hasText(licensePlate), UcCarRealTime::getCarLicense, licensePlate);
+        Integer directionCode = toDirectionCode(direction);
+        if (hasText(direction)) {
+            if (directionCode != null) {
+                wrapper.eq(UcCarRealTime::getDirection, directionCode);
+            } else {
+                wrapper.eq(UcCarRealTime::getDrivingDirection, direction);
+            }
+        }
 
         Page<UcCarRealTime> page = ucCarRealTimeMapper.selectPage(new Page<>(safePageNo(pageNo), safePageSize(pageSize)), wrapper);
 
@@ -74,7 +78,7 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
             row.setLicensePlate(item.getCarLicense());
             row.setVehicleType(vehicleTypeMap.getOrDefault(item.getCarLicense(), "unknown"));
             row.setSpeedKmh(item.getRealSpeed());
-            row.setDirection(toDirectionCode(item.getDrivingDirection()));
+            row.setDirection(resolveDirectionCode(item));
             row.setReportTime(item.getReportTime());
             return row;
         }).toList();
@@ -83,8 +87,7 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
     }
 
     /**
-     * 查询预约分页表格。
-     */
+     * 鏌ヨ棰勭害鍒嗛〉琛ㄦ牸銆?     */
     @Override
     public ApiResponse<?> getReservationTable(long pageNo, long pageSize, String licensePlate, String startTime, String endTime, Boolean deductedOnly) {
         LambdaQueryWrapper<TravelReservation> wrapper = new LambdaQueryWrapper<TravelReservation>()
@@ -140,8 +143,7 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
     }
 
     /**
-     * 查询车辆审核分页表格。
-     */
+     * 鏌ヨ杞﹁締瀹℃牳鍒嗛〉琛ㄦ牸銆?     */
     @Override
     public ApiResponse<?> getVehicleAuditTable(long pageNo, long pageSize, String keyword, String auditStatus) {
         LambdaQueryWrapper<CarInfo> wrapper = new LambdaQueryWrapper<CarInfo>()
@@ -160,8 +162,7 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
     }
 
     /**
-     * 查询车辆审核明细。
-     */
+     * 鏌ヨ杞﹁締瀹℃牳鏄庣粏銆?     */
     @Override
     public ApiResponse<?> getVehicleAuditDetail(String licensePlate) {
         CarInfo carInfo = getVehicleByLicenseOrThrow(licensePlate);
@@ -190,8 +191,7 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
     }
 
     /**
-     * 提交车辆审核通过。
-     */
+     * 鎻愪氦杞﹁締瀹℃牳閫氳繃銆?     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ApiResponse<?> approveVehicleAudit(String licensePlate) {
@@ -204,8 +204,7 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
     }
 
     /**
-     * 提交车辆审核拒绝。
-     */
+     * 鎻愪氦杞﹁締瀹℃牳鎷掔粷銆?     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ApiResponse<?> rejectVehicleAudit(String licensePlate, List<String> rejectItems, String rejectRemark) {
@@ -229,8 +228,7 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
     }
 
     /**
-     * 导出车辆审核列表为 CSV。
-     */
+     * 瀵煎嚭杞﹁締瀹℃牳鍒楄〃涓?CSV銆?     */
     @Override
     public byte[] exportVehicleAudit(String keyword, String auditStatus) {
         LambdaQueryWrapper<CarInfo> wrapper = new LambdaQueryWrapper<CarInfo>()
@@ -257,8 +255,7 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
     }
 
     /**
-     * 汇总预约统计。
-     */
+     * 姹囨€婚绾︾粺璁°€?     */
     private OperationMaintenanceResp.ReservationStats buildReservationStats(String licensePlate) {
         long total = travelReservationMapper.selectCount(new LambdaQueryWrapper<TravelReservation>()
                 .eq(TravelReservation::getCarLicense, licensePlate));
@@ -277,8 +274,7 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
     }
 
     /**
-     * 查询最近一次预约记录。
-     */
+     * 鏌ヨ鏈€杩戜竴娆￠绾﹁褰曘€?     */
     private OperationMaintenanceResp.ReservationBrief buildLatestReservation(String licensePlate) {
         TravelReservation latest = travelReservationMapper.selectOne(new LambdaQueryWrapper<TravelReservation>()
                 .eq(TravelReservation::getCarLicense, licensePlate)
@@ -301,8 +297,7 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
     }
 
     /**
-     * 按车牌查询车辆信息，不存在则抛业务异常。
-     */
+     * 鎸夎溅鐗屾煡璇㈣溅杈嗕俊鎭紝涓嶅瓨鍦ㄥ垯鎶涗笟鍔″紓甯搞€?     */
     private CarInfo getVehicleByLicenseOrThrow(String licensePlate) {
         CarInfo carInfo = carInfoMapper.selectOne(new LambdaQueryWrapper<CarInfo>()
                 .eq(CarInfo::getLicensePlate, licensePlate)
@@ -314,8 +309,7 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
     }
 
     /**
-     * 标准化审核拒绝项。
-     */
+     * 鏍囧噯鍖栧鏍告嫆缁濋」銆?     */
     private List<String> normalizeRejectItems(List<String> rejectItems) {
         if (rejectItems == null || rejectItems.isEmpty()) {
             return Collections.emptyList();
@@ -440,8 +434,7 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
     }
 
     /**
-     * 解析 ISO-8601 时间参数。
-     */
+     * 瑙ｆ瀽 ISO-8601 鏃堕棿鍙傛暟銆?     */
     private LocalDateTime parseDateTime(String value, String fieldName) {
         if (!hasText(value)) {
             return null;
@@ -454,8 +447,7 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
     }
 
     /**
-     * 审核状态编码转文本。
-     */
+     * 瀹℃牳鐘舵€佺紪鐮佽浆鏂囨湰銆?     */
     private String toAuditStatusText(String auditStatus) {
         if (!hasText(auditStatus)) {
             return "unknown";
@@ -479,6 +471,16 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
     private boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
     }
+    private Integer resolveDirectionCode(UcCarRealTime carRealTime) {
+        if (carRealTime == null) {
+            return null;
+        }
+        Integer code = carRealTime.getDirection();
+        if (code != null && (code == 1 || code == 2)) {
+            return code;
+        }
+        return toDirectionCode(carRealTime.getDrivingDirection());
+    }
 
     private Integer toDirectionCode(String rawDirection) {
         if (!hasText(rawDirection)) {
@@ -486,8 +488,8 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         }
         String s = rawDirection.trim().toLowerCase();
         if ("1".equals(s)
-                || "吐鲁番".equals(s)
-                || "上行".equals(s)
+                || "\u5410\u9c81\u756a".equals(s)
+                || "\u4e0a\u884c".equals(s)
                 || "turpan".equals(s)
                 || "tulufan".equals(s)
                 || "toez".equals(s)
@@ -498,8 +500,8 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
             return 1;
         }
         if ("2".equals(s)
-                || "哈密".equals(s)
-                || "下行".equals(s)
+                || "\u54c8\u5bc6".equals(s)
+                || "\u4e0b\u884c".equals(s)
                 || "hami".equals(s)
                 || "towh".equals(s)
                 || "to_wh".equals(s)
@@ -510,7 +512,6 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         }
         return null;
     }
-
     private long safePageNo(long pageNo) {
         return pageNo <= 0 ? 1 : pageNo;
     }
@@ -523,8 +524,7 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
     }
 
     /**
-     * 初始化审核拒绝项配置。
-     */
+     * 鍒濆鍖栧鏍告嫆缁濋」閰嶇疆銆?     */
     private static Map<String, String> buildRejectItemOptions() {
         Map<String, String> options = new LinkedHashMap<>();
         options.put("plate", "plate number error");
@@ -539,3 +539,4 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         return options;
     }
 }
+

@@ -38,6 +38,9 @@ public class WindRiskSpeedScheduleService {
     @Value("${wind.risk-speed.schedule.output-data-source:MATLAB_RULE_V1}")
     private String outputDataSource;
 
+    @Value("${wind.risk-speed.schedule.recompute-hours:0}")
+    private int recomputeHours;
+
     @Scheduled(cron = "${wind.risk-speed.schedule.cron:0 * * * * *}")
     public void updateByWindDataTimestamp() {
         if (!enabled) {
@@ -54,6 +57,16 @@ public class WindRiskSpeedScheduleService {
 
         LocalDateTime latestCalculatedHour = findLatestCalculatedHour(finalOutputSource);
         LocalDateTime startHour = latestCalculatedHour == null ? firstSourceHour : latestCalculatedHour.plusHours(1);
+        if (recomputeHours > 0) {
+            long rewind = Math.max(1, recomputeHours);
+            LocalDateTime rewindStart = lastSourceHour.minusHours(rewind - 1);
+            if (rewindStart.isBefore(firstSourceHour)) {
+                rewindStart = firstSourceHour;
+            }
+            if (startHour.isAfter(rewindStart)) {
+                startHour = rewindStart;
+            }
+        }
         if (startHour.isBefore(firstSourceHour)) {
             startHour = firstSourceHour;
         }

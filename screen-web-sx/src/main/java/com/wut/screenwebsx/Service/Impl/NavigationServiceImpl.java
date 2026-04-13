@@ -30,23 +30,23 @@ public class NavigationServiceImpl implements NavigationService {
     public ApiResponse<?> getCarRealInfo(String phone) {
         UcCarRealTime carRealTime = ucCarRealTimeMapper.selectLatestByPhone(phone);
         if (carRealTime == null) {
-            return ApiResponse.badRequest("暂无车辆实时数据");
+            return ApiResponse.badRequest("\u6682\u65e0\u8f66\u8f86\u5b9e\u65f6\u6570\u636e");
         }
         if (isRealtimeDataExpired(carRealTime.getReportTime())) {
-            return ApiResponse.badRequest("导航已结束或暂无车辆实时数据");
+            return ApiResponse.badRequest("\u5bfc\u822a\u5df2\u7ed3\u675f\u6216\u6682\u65e0\u8f66\u8f86\u5b9e\u65f6\u6570\u636e");
         }
         if (isNavigationFinished(phone, carRealTime.getCarLicense(), carRealTime.getReportTime())) {
-            return ApiResponse.badRequest("导航已结束或暂无车辆实时数据");
+            return ApiResponse.badRequest("\u5bfc\u822a\u5df2\u7ed3\u675f\u6216\u6682\u65e0\u8f66\u8f86\u5b9e\u65f6\u6570\u636e");
         }
 
         CarInfoResponse response = new CarInfoResponse();
         response.setSpeed(carRealTime.getRealSpeed());
         response.setLane(carRealTime.getLaneNumber());
         response.setPile(carRealTime.getCurrentPile());
-        response.setDirection(toDirectionCode(carRealTime.getDrivingDirection()));
+        response.setDirection(resolveDirectionCode(carRealTime));
         response.setVehicleType(getCarType(carRealTime.getCarLicense()));
 
-        return ApiResponse.success("获取成功", response);
+        return ApiResponse.success("\u83b7\u53d6\u6210\u529f", response);
     }
 
     @Override
@@ -56,14 +56,14 @@ public class NavigationServiceImpl implements NavigationService {
                 new NavigationController.WindZoneInfo(2000, 2500),
                 new NavigationController.WindZoneInfo(3000, 3500)
         );
-        return ApiResponse.success("获取成功", windZones);
+        return ApiResponse.success("\u83b7\u53d6\u6210\u529f", windZones);
     }
 
     private String getCarType(String licensePlate) {
         if (licensePlate == null || licensePlate.isBlank()) {
-            return "小型客车";
+            return "\u5c0f\u578b\u5ba2\u8f66";
         }
-        return licensePlate.endsWith("\u6302") ? "货车" : "小型客车";
+        return licensePlate.endsWith("\u6302") ? "\u8d27\u8f66" : "\u5c0f\u578b\u5ba2\u8f66";
     }
 
     private boolean isRealtimeDataExpired(LocalDateTime reportTime) {
@@ -88,14 +88,25 @@ public class NavigationServiceImpl implements NavigationService {
         return !reportTime.isAfter(latestSettlement.getNavigationEndTime());
     }
 
+    private Integer resolveDirectionCode(UcCarRealTime carRealTime) {
+        if (carRealTime == null) {
+            return null;
+        }
+        Integer code = carRealTime.getDirection();
+        if (code != null && (code == 1 || code == 2)) {
+            return code;
+        }
+        return toDirectionCode(carRealTime.getDrivingDirection());
+    }
+
     private Integer toDirectionCode(String rawDirection) {
         if (rawDirection == null || rawDirection.isBlank()) {
             return null;
         }
         String s = rawDirection.trim().toLowerCase(Locale.ROOT);
         if ("1".equals(s)
-                || "吐鲁番".equals(s)
-                || "上行".equals(s)
+                || "\u5410\u9c81\u756a".equals(s)
+                || "\u4e0a\u884c".equals(s)
                 || "turpan".equals(s)
                 || "tulufan".equals(s)
                 || "toez".equals(s)
@@ -106,8 +117,8 @@ public class NavigationServiceImpl implements NavigationService {
             return 1;
         }
         if ("2".equals(s)
-                || "哈密".equals(s)
-                || "下行".equals(s)
+                || "\u54c8\u5bc6".equals(s)
+                || "\u4e0b\u884c".equals(s)
                 || "hami".equals(s)
                 || "towh".equals(s)
                 || "to_wh".equals(s)
@@ -167,3 +178,4 @@ public class NavigationServiceImpl implements NavigationService {
         }
     }
 }
+
