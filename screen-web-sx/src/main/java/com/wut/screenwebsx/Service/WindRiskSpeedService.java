@@ -78,19 +78,20 @@ public class WindRiskSpeedService {
         String finalInputSource = hasText(inputDataSource) ? inputDataSource.trim() : null;
 
         List<WindData> sourceRows = windDataService.listByTimeRange(start, end);
-        Map<HourDirectionKey, List<WindData>> rowByHourDirection = groupRowsByHourDirection(sourceRows, finalInputSource);
+        Map<LocalDateTime, List<WindData>> rowByHour = groupRowsByHour(sourceRows, finalInputSource);
 
         Set<LocalDateTime> hourSet = new HashSet<>();
         List<WindRiskSectionHourly> riskRows = new ArrayList<>();
         List<WindSpeedLimitHourly> speedRows = new ArrayList<>();
-        for (Map.Entry<HourDirectionKey, List<WindData>> entry : rowByHourDirection.entrySet()) {
-            LocalDateTime timestamp = entry.getKey().timeStamp();
-            Integer direction = entry.getKey().direction();
+        for (Map.Entry<LocalDateTime, List<WindData>> entry : rowByHour.entrySet()) {
+            LocalDateTime timestamp = entry.getKey();
             hourSet.add(timestamp);
 
             List<SegmentWind> segments = collectSegments(entry.getValue());
-            riskRows.add(buildRiskRow(timestamp, direction, segments, finalOutputSource));
-            speedRows.addAll(buildSpeedRows(timestamp, direction, segments, finalOutputSource));
+            riskRows.add(buildRiskRow(timestamp, DIRECTION_TURPAN, segments, finalOutputSource));
+            riskRows.add(buildRiskRow(timestamp, DIRECTION_HAMI, segments, finalOutputSource));
+            speedRows.addAll(buildSpeedRows(timestamp, DIRECTION_TURPAN, segments, finalOutputSource));
+            speedRows.addAll(buildSpeedRows(timestamp, DIRECTION_HAMI, segments, finalOutputSource));
         }
 
         replaceResultRows(start, end, finalOutputSource, riskRows, speedRows);
@@ -101,7 +102,7 @@ public class WindRiskSpeedService {
         result.put("inputDataSource", finalInputSource);
         result.put("outputDataSource", finalOutputSource);
         result.put("hourCount", hourSet.size());
-        result.put("hourDirectionCount", rowByHourDirection.size());
+        result.put("hourDirectionCount", hourSet.size() * 2);
         result.put("riskRowCount", riskRows.size());
         result.put("speedRowCount", speedRows.size());
         return result;
@@ -158,12 +159,9 @@ public class WindRiskSpeedService {
         return windSpeedLimitHourlyMapper.selectList(wrapper);
     }
 
-    private Map<HourDirectionKey, List<WindData>> groupRowsByHourDirection(List<WindData> sourceRows,
-                                                                            String inputDataSource) {
-        Comparator<HourDirectionKey> comparator = Comparator
-                .comparing(HourDirectionKey::timeStamp)
-                .thenComparing(HourDirectionKey::direction);
-        Map<HourDirectionKey, List<WindData>> grouped = new TreeMap<>(comparator);
+    private Map<LocalDateTime, List<WindData>> groupRowsByHour(List<WindData> sourceRows,
+                                                                String inputDataSource) {
+        Map<LocalDateTime, List<WindData>> grouped = new TreeMap<>();
         for (WindData row : sourceRows) {
             if (!matchesInputSource(row.getDataSource(), inputDataSource)) {
                 continue;
@@ -172,11 +170,7 @@ public class WindRiskSpeedService {
             if (timeStamp == null) {
                 continue;
             }
-            Integer direction = normalizeRowDirection(row.getDirection());
-            if (direction == null) {
-                continue;
-            }
-            HourDirectionKey key = new HourDirectionKey(truncateToHour(timeStamp), direction);
+            LocalDateTime key = truncateToHour(timeStamp);
             grouped.computeIfAbsent(key, unused -> new ArrayList<>()).add(row);
         }
         return grouped;
@@ -385,16 +379,6 @@ public class WindRiskSpeedService {
         }
     }
 
-    private Integer normalizeRowDirection(Integer direction) {
-        if (direction == null) {
-            return null;
-        }
-        if (direction == DIRECTION_TURPAN || direction == DIRECTION_HAMI) {
-            return direction;
-        }
-        return null;
-    }
-
     private Integer normalizeQueryDirection(Integer direction) {
         if (direction == null) {
             return null;
@@ -446,9 +430,6 @@ public class WindRiskSpeedService {
             }
             return stationKm <= startKm && stationKm > endKm;
         }
-    }
-
-    private record HourDirectionKey(LocalDateTime timeStamp, int direction) {
     }
 
     private record SegmentWind(double startKm, double endKm, double stationKm, double windSpeed) {
