@@ -47,3 +47,15 @@ logging:
 
 mybatis-plus:
   mapperLocations: ["classpath*:/Mapper/*.xml"]
+
+wind:
+  risk-speed:
+    schedule:
+      enabled: true
+      # Run every 5 minutes at second 10 to leave time for upstream ingestion.
+      cron: "10 */5 * * * *"
+      # Keep empty to use all sources, or set prefix like ACCIDENT_WIND_MATRIX*.
+      input-data-source: ""
+      output-data-source: "MATLAB_RULE_V1"
+      # Recompute latest 3 hours on each run: current hour + next 2 hours.
+      recompute-hours: 3
