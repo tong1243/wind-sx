@@ -25,6 +25,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -486,10 +487,10 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         if (!hasText(rawDirection)) {
             return null;
         }
-        String s = rawDirection.trim().toLowerCase();
+        String s = rawDirection.trim().toLowerCase(Locale.ROOT);
         if ("1".equals(s)
-                || "\u5410\u9c81\u756a".equals(s)
-                || "\u4e0a\u884c".equals(s)
+                || "吐鲁番".equals(s)
+                || "上行".equals(s)
                 || "turpan".equals(s)
                 || "tulufan".equals(s)
                 || "toez".equals(s)
@@ -500,8 +501,8 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
             return 1;
         }
         if ("2".equals(s)
-                || "\u54c8\u5bc6".equals(s)
-                || "\u4e0b\u884c".equals(s)
+                || "哈密".equals(s)
+                || "下行".equals(s)
                 || "hami".equals(s)
                 || "towh".equals(s)
                 || "to_wh".equals(s)
