@@ -18,6 +18,9 @@ public class WindRiskSectionHourly {
     @TableField("time_stamp")
     private LocalDateTime timeStamp;
 
+    @TableField("direction")
+    private Integer direction;
+
     @TableField("wind_threshold")
     private BigDecimal windThreshold;
 
