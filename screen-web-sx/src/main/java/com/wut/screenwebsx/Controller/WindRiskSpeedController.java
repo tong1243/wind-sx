@@ -32,23 +32,20 @@ public class WindRiskSpeedController {
     @GetMapping("/wind-risk-sections/hourly")
     public DefaultDataResp listRiskSections(@RequestParam("startTimestamp") long startTimestamp,
                                             @RequestParam("endTimestamp") long endTimestamp,
-                                            @RequestParam(value = "direction", required = false) Integer direction,
                                             @RequestParam(value = "outputDataSource", required = false) String outputDataSource) {
         return ModelTransformUtil.getDefaultDataInstance(
                 "wind risk sections hourly",
-                windRiskSpeedService.listRiskSections(startTimestamp, endTimestamp, direction, outputDataSource)
+                windRiskSpeedService.listRiskSections(startTimestamp, endTimestamp, outputDataSource)
         );
     }
 
     @GetMapping("/wind-speed-limits/hourly")
     public DefaultDataResp listSpeedLimits(@RequestParam("startTimestamp") long startTimestamp,
                                            @RequestParam("endTimestamp") long endTimestamp,
-                                           @RequestParam(value = "direction", required = false) Integer direction,
                                            @RequestParam(value = "outputDataSource", required = false) String outputDataSource) {
         return ModelTransformUtil.getDefaultDataInstance(
                 "wind speed limits hourly",
-                windRiskSpeedService.listSpeedLimits(startTimestamp, endTimestamp, direction, outputDataSource)
+                windRiskSpeedService.listSpeedLimits(startTimestamp, endTimestamp, outputDataSource)
         );
     }
 }
-

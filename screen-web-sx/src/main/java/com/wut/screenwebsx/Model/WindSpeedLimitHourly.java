@@ -18,12 +18,6 @@ public class WindSpeedLimitHourly {
     @TableField("time_stamp")
     private LocalDateTime timeStamp;
 
-    @TableField("direction")
-    private Integer direction;
-
-    @TableField("direction_name")
-    private String directionName;
-
     @TableField("section_order")
     private Integer sectionOrder;
 
@@ -63,4 +57,3 @@ public class WindSpeedLimitHourly {
     @TableField("update_time")
     private LocalDateTime updateTime;
 }
-
