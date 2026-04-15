@@ -1,4 +1,4 @@
-﻿package com.wut.screenwebsx.Service.Impl;
+package com.wut.screenwebsx.Service.Impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -31,23 +31,15 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/**
- * 杩愮淮鍚庡彴涓氬姟瀹炵幇銆? * 瑕嗙洊鍦ㄩ€旇溅杈嗐€侀绾﹁褰曘€佽溅杈嗗鏍稿強瀵煎嚭鑳藉姏銆? */
 @Service
 @RequiredArgsConstructor
 public class OperationMaintenanceServiceImpl implements OperationMaintenanceService {
-    /** 鍦ㄩ€旇溅杈?Mapper銆?*/
     private final UcCarRealTimeMapper ucCarRealTimeMapper;
-    /** 棰勭害璁板綍 Mapper銆?*/
     private final TravelReservationMapper travelReservationMapper;
-    /** 杞﹁締妗ｆ Mapper銆?*/
     private final CarInfoMapper carInfoMapper;
 
-    /** 瀹℃牳鎷掔粷椤规槧灏勩€?*/
     private static final Map<String, String> REJECT_ITEM_OPTIONS = buildRejectItemOptions();
 
-    /**
-     * 鏌ヨ鍦ㄩ€旇溅杈嗗垎椤佃〃鏍笺€?     */
     @Override
     public ApiResponse<?> getRealtimeVehicleTable(long pageNo, long pageSize, String vehicleId, String licensePlate, String direction) {
         LambdaQueryWrapper<UcCarRealTime> wrapper = new LambdaQueryWrapper<UcCarRealTime>()
@@ -87,8 +79,6 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         return ApiResponse.success("realtime vehicle table loaded", buildPage(page, rows));
     }
 
-    /**
-     * 鏌ヨ棰勭害鍒嗛〉琛ㄦ牸銆?     */
     @Override
     public ApiResponse<?> getReservationTable(long pageNo, long pageSize, String licensePlate, String startTime, String endTime, Boolean deductedOnly) {
         LambdaQueryWrapper<TravelReservation> wrapper = new LambdaQueryWrapper<TravelReservation>()
@@ -143,8 +133,6 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         return ApiResponse.success("reservation table loaded", buildPage(page, rows));
     }
 
-    /**
-     * 鏌ヨ杞﹁締瀹℃牳鍒嗛〉琛ㄦ牸銆?     */
     @Override
     public ApiResponse<?> getVehicleAuditTable(long pageNo, long pageSize, String keyword, String auditStatus) {
         LambdaQueryWrapper<CarInfo> wrapper = new LambdaQueryWrapper<CarInfo>()
@@ -162,8 +150,6 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         return ApiResponse.success("vehicle audit table loaded", data);
     }
 
-    /**
-     * 鏌ヨ杞﹁締瀹℃牳鏄庣粏銆?     */
     @Override
     public ApiResponse<?> getVehicleAuditDetail(String licensePlate) {
         CarInfo carInfo = getVehicleByLicenseOrThrow(licensePlate);
@@ -191,8 +177,6 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         return ApiResponse.success("vehicle audit detail loaded", detail);
     }
 
-    /**
-     * 鎻愪氦杞﹁締瀹℃牳閫氳繃銆?     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ApiResponse<?> approveVehicleAudit(String licensePlate) {
@@ -204,8 +188,6 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         return ApiResponse.success("vehicle audit approved", null);
     }
 
-    /**
-     * 鎻愪氦杞﹁締瀹℃牳鎷掔粷銆?     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ApiResponse<?> rejectVehicleAudit(String licensePlate, List<String> rejectItems, String rejectRemark) {
@@ -228,8 +210,6 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         return ApiResponse.success("vehicle audit rejected", null);
     }
 
-    /**
-     * 瀵煎嚭杞﹁締瀹℃牳鍒楄〃涓?CSV銆?     */
     @Override
     public byte[] exportVehicleAudit(String keyword, String auditStatus) {
         LambdaQueryWrapper<CarInfo> wrapper = new LambdaQueryWrapper<CarInfo>()
@@ -255,8 +235,6 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         return csv.toString().getBytes(StandardCharsets.UTF_8);
     }
 
-    /**
-     * 姹囨€婚绾︾粺璁°€?     */
     private OperationMaintenanceResp.ReservationStats buildReservationStats(String licensePlate) {
         long total = travelReservationMapper.selectCount(new LambdaQueryWrapper<TravelReservation>()
                 .eq(TravelReservation::getCarLicense, licensePlate));
@@ -274,8 +252,6 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         return stats;
     }
 
-    /**
-     * 鏌ヨ鏈€杩戜竴娆￠绾﹁褰曘€?     */
     private OperationMaintenanceResp.ReservationBrief buildLatestReservation(String licensePlate) {
         TravelReservation latest = travelReservationMapper.selectOne(new LambdaQueryWrapper<TravelReservation>()
                 .eq(TravelReservation::getCarLicense, licensePlate)
@@ -297,8 +273,6 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         return brief;
     }
 
-    /**
-     * 鎸夎溅鐗屾煡璇㈣溅杈嗕俊鎭紝涓嶅瓨鍦ㄥ垯鎶涗笟鍔″紓甯搞€?     */
     private CarInfo getVehicleByLicenseOrThrow(String licensePlate) {
         CarInfo carInfo = carInfoMapper.selectOne(new LambdaQueryWrapper<CarInfo>()
                 .eq(CarInfo::getLicensePlate, licensePlate)
@@ -309,8 +283,6 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         return carInfo;
     }
 
-    /**
-     * 鏍囧噯鍖栧鏍告嫆缁濋」銆?     */
     private List<String> normalizeRejectItems(List<String> rejectItems) {
         if (rejectItems == null || rejectItems.isEmpty()) {
             return Collections.emptyList();
@@ -434,8 +406,6 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
-    /**
-     * 瑙ｆ瀽 ISO-8601 鏃堕棿鍙傛暟銆?     */
     private LocalDateTime parseDateTime(String value, String fieldName) {
         if (!hasText(value)) {
             return null;
@@ -447,8 +417,6 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         }
     }
 
-    /**
-     * 瀹℃牳鐘舵€佺紪鐮佽浆鏂囨湰銆?     */
     private String toAuditStatusText(String auditStatus) {
         if (!hasText(auditStatus)) {
             return "unknown";
@@ -524,8 +492,6 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         return Math.min(pageSize, 200);
     }
 
-    /**
-     * 鍒濆鍖栧鏍告嫆缁濋」閰嶇疆銆?     */
     private static Map<String, String> buildRejectItemOptions() {
         Map<String, String> options = new LinkedHashMap<>();
         options.put("plate", "plate number error");
