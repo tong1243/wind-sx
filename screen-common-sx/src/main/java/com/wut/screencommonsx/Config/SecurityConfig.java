@@ -76,7 +76,9 @@ public class SecurityConfig {
             "/api/v1/wind-risk-speed/**",
             "/api/v1/wind-risk-sections/**",
             "/api/v1/wind-speed-limits/**",
+            "/api/wind-risk-speed/**",
+            "/api/wind-risk-sections/**",
+            "/api/wind-speed-limits/**",
             "/socket/**"
     };
 }
-
