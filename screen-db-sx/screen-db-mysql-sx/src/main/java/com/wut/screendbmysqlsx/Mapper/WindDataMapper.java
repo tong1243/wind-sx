@@ -2,6 +2,7 @@ package com.wut.screendbmysqlsx.Mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.wut.screendbmysqlsx.Model.WindData;
+import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -9,17 +10,49 @@ import org.apache.ibatis.annotations.Select;
 import java.time.LocalDateTime;
 import java.util.List;
 
-/**
- * 大风数据 Mapper。
- */
 @Mapper
 public interface WindDataMapper extends BaseMapper<WindData> {
-    /**
-     * 查询某时刻之前（含）每个“方向+桩号区间”的最新一条风数据。
-     *
-     * @param ts 截止时间
-     * @return 最新快照列表
-     */
+    @Insert("""
+            INSERT INTO wind_data (
+                time_stamp,
+                direction,
+                start_stake,
+                end_stake,
+                section_name,
+                wind_speed,
+                wind_direction,
+                heavy_vehicle_speed_limit,
+                light_vehicle_speed_limit,
+                control_level,
+                data_source,
+                create_time,
+                update_time
+            ) VALUES (
+                #{row.timeStamp},
+                #{row.direction},
+                #{row.startStake},
+                #{row.endStake},
+                #{row.sectionName},
+                #{row.windSpeed},
+                #{row.windDirection},
+                #{row.heavyVehicleSpeedLimit},
+                #{row.lightVehicleSpeedLimit},
+                #{row.controlLevel},
+                #{row.dataSource},
+                #{row.createTime},
+                #{row.updateTime}
+            )
+            ON DUPLICATE KEY UPDATE
+                section_name = VALUES(section_name),
+                wind_speed = VALUES(wind_speed),
+                wind_direction = VALUES(wind_direction),
+                heavy_vehicle_speed_limit = VALUES(heavy_vehicle_speed_limit),
+                light_vehicle_speed_limit = VALUES(light_vehicle_speed_limit),
+                control_level = VALUES(control_level),
+                update_time = VALUES(update_time)
+            """)
+    int upsert(@Param("row") WindData row);
+
     @Select("""
             SELECT w.*
             FROM wind_data w
@@ -36,4 +69,3 @@ public interface WindDataMapper extends BaseMapper<WindData> {
             """)
     List<WindData> selectLatestSnapshot(@Param("ts") LocalDateTime ts);
 }
-

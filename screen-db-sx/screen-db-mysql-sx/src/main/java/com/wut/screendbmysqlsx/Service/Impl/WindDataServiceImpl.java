@@ -6,29 +6,44 @@ import com.wut.screendbmysqlsx.Mapper.WindDataMapper;
 import com.wut.screendbmysqlsx.Model.WindData;
 import com.wut.screendbmysqlsx.Service.WindDataService;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * 大风数据服务实现。
- */
 @Service
 public class WindDataServiceImpl extends ServiceImpl<WindDataMapper, WindData> implements WindDataService {
-    /** 大风数据 Mapper。 */
     private final WindDataMapper windDataMapper;
 
     public WindDataServiceImpl(WindDataMapper windDataMapper) {
         this.windDataMapper = windDataMapper;
     }
 
-    /**
-     * 查询最新快照。
-     *
-     * @param timestamp 截止时间
-     * @return 快照列表
-     */
+    @Override
+    public boolean upsert(WindData row) {
+        if (row == null) {
+            return false;
+        }
+        return windDataMapper.upsert(row) > 0;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int upsertBatch(List<WindData> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (WindData row : rows) {
+            if (row == null) {
+                continue;
+            }
+            count += windDataMapper.upsert(row);
+        }
+        return count;
+    }
+
     @Override
     public List<WindData> listLatestSnapshot(LocalDateTime timestamp) {
         if (timestamp == null) {
@@ -38,13 +53,6 @@ public class WindDataServiceImpl extends ServiceImpl<WindDataMapper, WindData> i
         return rows == null ? Collections.emptyList() : rows;
     }
 
-    /**
-     * 查询时间范围明细。
-     *
-     * @param start 起始时间（含）
-     * @param end 结束时间（含）
-     * @return 风数据明细
-     */
     @Override
     public List<WindData> listByTimeRange(LocalDateTime start, LocalDateTime end) {
         if (start == null || end == null || end.isBefore(start)) {
@@ -62,4 +70,3 @@ public class WindDataServiceImpl extends ServiceImpl<WindDataMapper, WindData> i
         return rows == null ? Collections.emptyList() : rows;
     }
 }
-

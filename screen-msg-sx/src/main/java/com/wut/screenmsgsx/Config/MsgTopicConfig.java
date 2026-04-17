@@ -14,4 +14,9 @@ public class MsgTopicConfig {
         return TopicBuilder.name(TOPIC_NAME_TRAJ).partitions(TOPIC_TRAJ_PARTITIONS).replicas(TOPIC_DEFAULT_REPLICAS).build();
     }
 
+    @Bean("topicWind")
+    public NewTopic topicWind() {
+        return TopicBuilder.name(TOPIC_NAME_WIND).partitions(TOPIC_WIND_PARTITIONS).replicas(TOPIC_DEFAULT_REPLICAS).build();
+    }
+
 }
