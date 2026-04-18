@@ -1,9 +1,12 @@
 package com.wut.screenwebsx.Service.Impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.wut.screencommonsx.Model.CarInfo;
 import com.wut.screencommonsx.Model.NavigationSettlement;
 import com.wut.screencommonsx.Model.UcCarRealTime;
 import com.wut.screencommonsx.Response.ApiResponse;
 import com.wut.screenwebsx.Controller.NavigationController;
+import com.wut.screenwebsx.Mapper.CarInfoMapper;
 import com.wut.screenwebsx.Mapper.NavigationSettlementMapper;
 import com.wut.screenwebsx.Mapper.UcCarRealTimeMapper;
 import com.wut.screenwebsx.Service.NavigationService;
@@ -22,6 +25,7 @@ import java.util.Locale;
 public class NavigationServiceImpl implements NavigationService {
     private final UcCarRealTimeMapper ucCarRealTimeMapper;
     private final NavigationSettlementMapper navigationSettlementMapper;
+    private final CarInfoMapper carInfoMapper;
 
     @Value("${app.realtime-navigation.data-timeout-seconds:120}")
     private long dataTimeoutSeconds;
@@ -60,10 +64,25 @@ public class NavigationServiceImpl implements NavigationService {
     }
 
     private String getCarType(String licensePlate) {
+        String fromCarInfo = resolveVehicleTypeFromCarInfo(licensePlate);
+        return "2".equals(fromCarInfo) ? "2" : "1";
+    }
+
+    private String resolveVehicleTypeFromCarInfo(String licensePlate) {
         if (licensePlate == null || licensePlate.isBlank()) {
-            return "1";
+            return null;
         }
-        return licensePlate.endsWith("挂") ? "2" : "1";
+        CarInfo carInfo = carInfoMapper.selectOne(new LambdaQueryWrapper<CarInfo>()
+                .eq(CarInfo::getLicensePlate, licensePlate.trim())
+                .last("LIMIT 1"));
+        if (carInfo == null || carInfo.getVehicleType() == null || carInfo.getVehicleType().isBlank()) {
+            return null;
+        }
+        String s = carInfo.getVehicleType().trim();
+        if ("1".equals(s) || "2".equals(s)) {
+            return s;
+        }
+        return null;
     }
 
     private boolean isRealtimeDataExpired(LocalDateTime reportTime) {
