@@ -61,9 +61,9 @@ public class NavigationServiceImpl implements NavigationService {
 
     private String getCarType(String licensePlate) {
         if (licensePlate == null || licensePlate.isBlank()) {
-            return "小型客车";
+            return "1";
         }
-        return licensePlate.endsWith("挂") ? "货车" : "小型客车";
+        return licensePlate.endsWith("挂") ? "2" : "1";
     }
 
     private boolean isRealtimeDataExpired(LocalDateTime reportTime) {
