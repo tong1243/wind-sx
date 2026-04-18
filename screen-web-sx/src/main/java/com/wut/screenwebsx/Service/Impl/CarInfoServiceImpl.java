@@ -197,11 +197,11 @@ public class CarInfoServiceImpl extends ServiceImpl<CarInfoMapper, CarInfo> impl
 
     private void bindCarToUser(String phone, String licensePlate) {
         UserAccount user = loadUserOrThrow(phone);
-        if (user.getCar1License() == null) {
+        if (!hasText(user.getCar1License())) {
             user.setCar1License(licensePlate);
-        } else if (user.getCar2License() == null) {
+        } else if (!hasText(user.getCar2License())) {
             user.setCar2License(licensePlate);
-        } else if (user.getCar3License() == null) {
+        } else if (!hasText(user.getCar3License())) {
             user.setCar3License(licensePlate);
         } else {
             throw BusinessException.badRequest("max 3 vehicles per account");
