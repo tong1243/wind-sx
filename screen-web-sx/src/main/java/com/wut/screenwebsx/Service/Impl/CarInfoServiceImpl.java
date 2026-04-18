@@ -1,6 +1,7 @@
 package com.wut.screenwebsx.Service.Impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.wut.screencommonsx.Exception.BusinessException;
 import com.wut.screencommonsx.Model.CarInfo;
@@ -112,11 +113,19 @@ public class CarInfoServiceImpl extends ServiceImpl<CarInfoMapper, CarInfo> impl
         loadVehicleByLicenseOrThrow(normalizedLicense);
 
         unbindCarFromUser(user, normalizedLicense);
-        userAccountMapper.updateById(user);
+        persistUserCarBindings(user);
 
         carInfoMapper.delete(new LambdaQueryWrapper<CarInfo>()
                 .eq(CarInfo::getLicensePlate, normalizedLicense));
         return ApiResponse.success("vehicle deleted", null);
+    }
+
+    private void persistUserCarBindings(UserAccount user) {
+        userAccountMapper.update(null, new LambdaUpdateWrapper<UserAccount>()
+                .eq(UserAccount::getPhone, user.getPhone())
+                .set(UserAccount::getCar1License, user.getCar1License())
+                .set(UserAccount::getCar2License, user.getCar2License())
+                .set(UserAccount::getCar3License, user.getCar3License()));
     }
 
     private boolean applyVehicleName(CarInfo carInfo, String rawVehicleName) {
