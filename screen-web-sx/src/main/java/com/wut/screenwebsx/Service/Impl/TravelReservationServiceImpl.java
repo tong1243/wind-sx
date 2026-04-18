@@ -21,6 +21,9 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class TravelReservationServiceImpl implements TravelReservationService {
     private final TravelReservationMapper reservationMapper;
+    private static final int RESERVATION_PENDING = 2;
+    private static final int RESERVATION_APPROVED = 1;
+    private static final int RESERVATION_REJECTED = 0;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -36,7 +39,7 @@ public class TravelReservationServiceImpl implements TravelReservationService {
         response.setSuccess(true);
         response.setQrCode("data:image/png;base64,iVBORw0KGgoAAAANS...");
         response.setReservationData(request);
-        return ApiResponse.success("\u7eff\u7801\u751f\u6210\u6210\u529f", response);
+        return ApiResponse.success("reservation submitted, pending audit", response);
     }
 
     @Override
@@ -60,8 +63,8 @@ public class TravelReservationServiceImpl implements TravelReservationService {
         response.setReservationData(toReservationData(request));
         response.setQrCode("data:image/png;base64,iVBORw0KGgoAAAANS...");
         response.setCreatedAt(LocalDateTime.now().toString());
-        response.setStatus("allowed");
-        return ApiResponse.success("\u901a\u884c\u51ed\u8bc1\u521b\u5efa\u6210\u529f", response);
+        response.setStatus(toCertificateStatus(reservation.getIsPassed()));
+        return ApiResponse.success("certificate status loaded", response);
     }
 
     @Override
@@ -76,7 +79,7 @@ public class TravelReservationServiceImpl implements TravelReservationService {
         response.setReservationData(toReservationData(latest));
         response.setQrCode("data:image/png;base64,iVBORw0KGgoAAAANS...");
         response.setCreatedAt(latest.getCreateTime().toString());
-        response.setStatus(latest.getIsPassed() == 1 ? "allowed" : "rejected");
+        response.setStatus(toCertificateStatus(latest.getIsPassed()));
         return ApiResponse.success("\u83b7\u53d6\u6210\u529f", response);
     }
 
@@ -91,11 +94,24 @@ public class TravelReservationServiceImpl implements TravelReservationService {
         reservation.setCargoWeight(request.getCargoWeight() == null
                 ? BigDecimal.ZERO
                 : new BigDecimal(request.getCargoWeight()));
-        reservation.setIsPassed(1);
+        reservation.setIsPassed(RESERVATION_PENDING);
         reservation.setCreateTime(LocalDateTime.now());
         reservation.setUpdateTime(LocalDateTime.now());
         reservation.setExpireTime(LocalDateTime.now().plusHours(24));
         return reservation;
+    }
+
+    private String toCertificateStatus(Integer isPassed) {
+        if (isPassed == null || isPassed == RESERVATION_PENDING) {
+            return "pending";
+        }
+        if (isPassed == RESERVATION_APPROVED) {
+            return "allowed";
+        }
+        if (isPassed == RESERVATION_REJECTED) {
+            return "rejected";
+        }
+        return "unknown";
     }
 
     private ReservationData toReservationData(GreenCodeRequest request) {

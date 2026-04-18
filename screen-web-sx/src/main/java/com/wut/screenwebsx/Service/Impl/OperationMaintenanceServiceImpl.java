@@ -38,6 +38,9 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
     private final TravelReservationMapper travelReservationMapper;
     private final CarInfoMapper carInfoMapper;
 
+    private static final int RESERVATION_PENDING = 2;
+    private static final int RESERVATION_APPROVED = 1;
+    private static final int RESERVATION_REJECTED = 0;
     private static final Map<String, String> REJECT_ITEM_OPTIONS = buildRejectItemOptions();
 
     @Override
@@ -126,11 +129,36 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
             row.setTravelTimeSlot(item.getTravelTimeSlot());
             row.setVehicleType(hasText(item.getCarType()) ? item.getCarType() : (car == null ? "unknown" : car.getVehicleType()));
             row.setDeductionRecord(buildDeductionRecord(car));
+            row.setIsPassed(item.getIsPassed());
+            row.setAuditStatusText(toReservationAuditStatusText(item.getIsPassed()));
+            row.setRejectReason(item.getRejectReason());
             row.setCreateTime(item.getCreateTime());
             return row;
         }).toList();
 
         return ApiResponse.success("reservation table loaded", buildPage(page, rows));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ApiResponse<?> approveReservation(Long reservationId) {
+        TravelReservation reservation = getReservationByIdOrThrow(reservationId);
+        reservation.setIsPassed(RESERVATION_APPROVED);
+        reservation.setRejectReason(null);
+        reservation.setUpdateTime(LocalDateTime.now());
+        travelReservationMapper.updateById(reservation);
+        return ApiResponse.success("reservation audit approved", null);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ApiResponse<?> rejectReservation(Long reservationId, String rejectReason) {
+        TravelReservation reservation = getReservationByIdOrThrow(reservationId);
+        reservation.setIsPassed(RESERVATION_REJECTED);
+        reservation.setRejectReason(normalizeRejectReason(rejectReason));
+        reservation.setUpdateTime(LocalDateTime.now());
+        travelReservationMapper.updateById(reservation);
+        return ApiResponse.success("reservation audit rejected", null);
     }
 
     @Override
@@ -273,6 +301,17 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         return brief;
     }
 
+    private TravelReservation getReservationByIdOrThrow(Long reservationId) {
+        if (reservationId == null || reservationId <= 0) {
+            throw BusinessException.badRequest("reservationId must be positive");
+        }
+        TravelReservation reservation = travelReservationMapper.selectById(reservationId);
+        if (reservation == null) {
+            throw BusinessException.notFound("reservation not found");
+        }
+        return reservation;
+    }
+
     private CarInfo getVehicleByLicenseOrThrow(String licensePlate) {
         CarInfo carInfo = carInfoMapper.selectOne(new LambdaQueryWrapper<CarInfo>()
                 .eq(CarInfo::getLicensePlate, licensePlate)
@@ -367,6 +406,19 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         return "deduct " + deducted + " points, remain " + remain;
     }
 
+    private String toReservationAuditStatusText(Integer isPassed) {
+        if (isPassed == null || isPassed == RESERVATION_PENDING) {
+            return "pending";
+        }
+        if (isPassed == RESERVATION_APPROVED) {
+            return "approved";
+        }
+        if (isPassed == RESERVATION_REJECTED) {
+            return "rejected";
+        }
+        return "unknown";
+    }
+
     private List<OperationMaintenanceResp.AuditCheckItem> buildCheckItems(String rejectReason) {
         Set<String> reasonWords = splitRejectReason(rejectReason);
         List<OperationMaintenanceResp.AuditCheckItem> result = new ArrayList<>();
@@ -439,6 +491,13 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
 
     private boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
+    }
+
+    private String normalizeRejectReason(String rejectReason) {
+        if (!hasText(rejectReason)) {
+            throw BusinessException.badRequest("rejectReason cannot be blank");
+        }
+        return rejectReason.trim();
     }
     private Integer resolveDirectionCode(UcCarRealTime carRealTime) {
         if (carRealTime == null) {

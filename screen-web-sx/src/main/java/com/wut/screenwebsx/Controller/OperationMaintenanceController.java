@@ -1,5 +1,6 @@
 package com.wut.screenwebsx.Controller;
 
+import com.wut.screencommonsx.Request.ReservationAuditRejectRequest;
 import com.wut.screencommonsx.Request.VehicleAuditRejectRequest;
 import com.wut.screencommonsx.Response.ApiResponse;
 import com.wut.screenwebsx.Service.OperationMaintenanceService;
@@ -68,6 +69,17 @@ public class OperationMaintenanceController {
                                               @RequestParam(required = false) String endTime,
                                               @RequestParam(required = false) Boolean deductedOnly) {
         return operationMaintenanceService.getReservationTable(pageNo, pageSize, licensePlate, startTime, endTime, deductedOnly);
+    }
+
+    @PostMapping("/reservations/{reservationId}/approve")
+    public ApiResponse<?> approveReservation(@PathVariable Long reservationId) {
+        return operationMaintenanceService.approveReservation(reservationId);
+    }
+
+    @PostMapping("/reservations/{reservationId}/reject")
+    public ApiResponse<?> rejectReservation(@PathVariable Long reservationId,
+                                            @Valid @RequestBody ReservationAuditRejectRequest request) {
+        return operationMaintenanceService.rejectReservation(reservationId, request.getRejectReason());
     }
 
     /**

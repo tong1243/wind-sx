@@ -19,6 +19,16 @@ public interface OperationMaintenanceService {
     ApiResponse<?> getReservationTable(long pageNo, long pageSize, String licensePlate, String startTime, String endTime, Boolean deductedOnly);
 
     /**
+     * 预约审核通过。
+     */
+    ApiResponse<?> approveReservation(Long reservationId);
+
+    /**
+     * 预约审核驳回。
+     */
+    ApiResponse<?> rejectReservation(Long reservationId, String rejectReason);
+
+    /**
      * 查询车辆审核列表。
      */
     ApiResponse<?> getVehicleAuditTable(long pageNo, long pageSize, String keyword, String auditStatus);
