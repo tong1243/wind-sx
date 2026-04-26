@@ -29,7 +29,7 @@ public class TravelReservationServiceImpl implements TravelReservationService {
     @Transactional(rollbackFor = Exception.class)
     public ApiResponse<?> generateGreenCode(GreenCodeRequest request, String phone) {
         if (request.getStartPoint().equals(request.getEndPoint())) {
-            throw BusinessException.badRequest("startPoint and endPoint cannot be the same");
+            throw BusinessException.badRequest("起点和终点不能相同");
         }
 
         TravelReservation reservation = buildReservation(request, phone);
@@ -39,7 +39,7 @@ public class TravelReservationServiceImpl implements TravelReservationService {
         response.setSuccess(true);
         response.setQrCode("data:image/png;base64,iVBORw0KGgoAAAANS...");
         response.setReservationData(request);
-        return ApiResponse.success("reservation submitted, pending audit", response);
+        return ApiResponse.success("预约已提交，待审核", response);
     }
 
     @Override
@@ -55,7 +55,7 @@ public class TravelReservationServiceImpl implements TravelReservationService {
         ).stream().findFirst().orElse(null);
 
         if (reservation == null) {
-            throw BusinessException.notFound("No matching reservation record found");
+            throw BusinessException.notFound("未找到匹配的预约记录");
         }
 
         CertificateResponse response = new CertificateResponse();
@@ -64,14 +64,14 @@ public class TravelReservationServiceImpl implements TravelReservationService {
         response.setQrCode("data:image/png;base64,iVBORw0KGgoAAAANS...");
         response.setCreatedAt(LocalDateTime.now().toString());
         response.setStatus(toCertificateStatus(reservation.getIsPassed()));
-        return ApiResponse.success("certificate status loaded", response);
+        return ApiResponse.success("通行凭证状态获取成功", response);
     }
 
     @Override
     public ApiResponse<?> getCertificate(String phone) {
         TravelReservation latest = reservationMapper.selectLatestByPhone(phone);
         if (latest == null) {
-            throw BusinessException.notFound("No certificate found");
+            throw BusinessException.notFound("未找到通行凭证");
         }
 
         CertificateResponse response = new CertificateResponse();

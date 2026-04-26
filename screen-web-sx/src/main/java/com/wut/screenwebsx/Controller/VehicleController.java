@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.MediaType;
 
 @RestController
 @RequestMapping("/api/travelReservation")
@@ -28,7 +29,7 @@ public class VehicleController {
         return carInfoService.getMyVehicles(phone);
     }
 
-    @PostMapping("/registerVehicle")
+    @PostMapping(value = "/registerVehicle", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ApiResponse<?> registerVehicle(@Valid @RequestBody VehicleRegisterRequest request,
                                           Authentication authentication) {
         String phone = authentication.getName();

@@ -31,6 +31,13 @@ public class NavigationServiceImpl implements NavigationService {
     private long dataTimeoutSeconds;
 
     @Override
+    public ApiResponse<?> resetRealTimeNavigationData() {
+        int deleted = ucCarRealTimeMapper.clearAll();
+        log.info("Cleared uc_car_real_time rows: {}", deleted);
+        return ApiResponse.success("重置成功", deleted);
+    }
+
+    @Override
     public ApiResponse<?> getCarRealInfo(String phone) {
         UcCarRealTime carRealTime = ucCarRealTimeMapper.selectLatestByPhone(phone);
         if (carRealTime == null) {

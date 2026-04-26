@@ -198,11 +198,11 @@ public class WindRealtimeDataContext {
             dataSource = defaultDataSource;
         }
 
-        LocalDateTime hour = truncateToHour(thisTime);
+        LocalDateTime eventTime = thisTime == null ? LocalDateTime.now() : thisTime;
         LocalDateTime now = LocalDateTime.now();
         for (Integer direction : resolveDirections(dataNode, node)) {
             WindData row = new WindData();
-            row.setTimeStamp(hour);
+            row.setTimeStamp(eventTime);
             row.setDirection(direction);
             row.setStartStake(startStake);
             row.setEndStake(endStake);
@@ -289,13 +289,6 @@ public class WindRealtimeDataContext {
         } catch (DateTimeParseException ignored) {
         }
         return null;
-    }
-
-    private LocalDateTime truncateToHour(LocalDateTime time) {
-        if (time == null) {
-            return LocalDateTime.now().withMinute(0).withSecond(0).withNano(0);
-        }
-        return time.withMinute(0).withSecond(0).withNano(0);
     }
 
     private long toEpochMilli(LocalDateTime time) {
