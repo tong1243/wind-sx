@@ -25,6 +25,6 @@ public class UcCarRealTime {
      */
     private String drivingDirection;
     private Integer laneNumber;
+    private Integer road;
     private LocalDateTime reportTime;
 }
-

@@ -16,6 +16,18 @@ public interface UcCarRealTimeMapper extends BaseMapper<UcCarRealTime> {
     @Select("SELECT * FROM uc_car_real_time WHERE user_phone = #{phone} ORDER BY report_time DESC LIMIT 1")
     UcCarRealTime selectLatestByPhone(@Param("phone") String phone);
 
+    @Delete("DELETE FROM uc_car_real_time " +
+            "WHERE user_phone = #{phone} " +
+            "AND id NOT IN ( " +
+            "  SELECT id FROM ( " +
+            "    SELECT id FROM uc_car_real_time " +
+            "    WHERE user_phone = #{phone} " +
+            "    ORDER BY report_time DESC, id DESC " +
+            "    LIMIT 1 " +
+            "  ) latest " +
+            ")")
+    int clearHistoryByPhoneKeepLatest(@Param("phone") String phone);
+
     @Delete("DELETE FROM uc_car_real_time")
     int clearAll();
 }

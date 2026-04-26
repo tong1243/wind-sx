@@ -39,6 +39,15 @@ public class NavigationServiceImpl implements NavigationService {
 
     @Override
     public ApiResponse<?> getCarRealInfo(String phone) {
+        if (phone == null || phone.isBlank()) {
+            return ApiResponse.badRequest("用户信息不存在");
+        }
+
+        int cleaned = ucCarRealTimeMapper.clearHistoryByPhoneKeepLatest(phone);
+        if (cleaned > 0) {
+            log.info("Cleaned historical uc_car_real_time rows for phone={}, deleted={}", phone, cleaned);
+        }
+
         UcCarRealTime carRealTime = ucCarRealTimeMapper.selectLatestByPhone(phone);
         if (carRealTime == null) {
             return ApiResponse.badRequest("暂无车辆实时数据");
@@ -53,6 +62,7 @@ public class NavigationServiceImpl implements NavigationService {
         CarInfoResponse response = new CarInfoResponse();
         response.setSpeed(carRealTime.getRealSpeed());
         response.setLane(carRealTime.getLaneNumber());
+        response.setRoad(resolveRoadCode(carRealTime));
         response.setPile(carRealTime.getCurrentPile());
         response.setDirection(resolveDirectionCode(carRealTime));
         response.setVehicleType(getCarType(carRealTime.getCarLicense()));
@@ -88,6 +98,26 @@ public class NavigationServiceImpl implements NavigationService {
         String s = carInfo.getVehicleType().trim();
         if ("1".equals(s) || "2".equals(s)) {
             return s;
+        }
+        return null;
+    }
+
+    private Integer resolveRoadCode(UcCarRealTime carRealTime) {
+        if (carRealTime != null && carRealTime.getRoad() != null && carRealTime.getRoad() > 0) {
+            return carRealTime.getRoad();
+        }
+        Integer direction = resolveDirectionCode(carRealTime);
+        if (direction == null) {
+            return null;
+        }
+        // 主线道路编号映射（按内部静态表）：
+        // direction=1(下行) -> road=2(左幅)
+        // direction=2(上行) -> road=1(右幅)
+        if (direction == 1) {
+            return 2;
+        }
+        if (direction == 2) {
+            return 1;
         }
         return null;
     }
@@ -159,6 +189,7 @@ public class NavigationServiceImpl implements NavigationService {
     public static class CarInfoResponse {
         private Integer speed;
         private Integer lane;
+        private Integer road;
         private String pile;
         private Integer direction;
         private String vehicleType;
@@ -177,6 +208,14 @@ public class NavigationServiceImpl implements NavigationService {
 
         public void setLane(Integer lane) {
             this.lane = lane;
+        }
+
+        public Integer getRoad() {
+            return road;
+        }
+
+        public void setRoad(Integer road) {
+            this.road = road;
         }
 
         public String getPile() {
