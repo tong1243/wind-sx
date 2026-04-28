@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Service
@@ -26,9 +27,14 @@ public class NavigationServiceImpl implements NavigationService {
     private final UcCarRealTimeMapper ucCarRealTimeMapper;
     private final NavigationSettlementMapper navigationSettlementMapper;
     private final CarInfoMapper carInfoMapper;
+    private final ConcurrentHashMap<String, Long> realtimeNavLastVisitMs = new ConcurrentHashMap<>();
+    private final Object realtimeResetLock = new Object();
 
     @Value("${app.realtime-navigation.data-timeout-seconds:120}")
     private long dataTimeoutSeconds;
+
+    @Value("${app.realtime-navigation.auto-reset-entry-gap-seconds:30}")
+    private long autoResetEntryGapSeconds;
 
     @Override
     public ApiResponse<?> resetRealTimeNavigationData() {
@@ -42,6 +48,7 @@ public class NavigationServiceImpl implements NavigationService {
         if (phone == null || phone.isBlank()) {
             return ApiResponse.badRequest("用户信息不存在");
         }
+        maybeResetRealtimeDataOnEntry(phone);
 
         int cleaned = ucCarRealTimeMapper.clearHistoryByPhoneKeepLatest(phone);
         if (cleaned > 0) {
@@ -120,6 +127,19 @@ public class NavigationServiceImpl implements NavigationService {
             return 1;
         }
         return null;
+    }
+
+    private void maybeResetRealtimeDataOnEntry(String phone) {
+        long now = System.currentTimeMillis();
+        long minGapMs = Math.max(autoResetEntryGapSeconds, 5L) * 1000L;
+        Long lastVisit = realtimeNavLastVisitMs.put(phone, now);
+        if (lastVisit != null && now - lastVisit < minGapMs) {
+            return;
+        }
+        synchronized (realtimeResetLock) {
+            int deleted = ucCarRealTimeMapper.clearAll();
+            log.info("Auto reset uc_car_real_time on navigation entry, phone={}, deleted={}", phone, deleted);
+        }
     }
 
     private boolean isRealtimeDataExpired(LocalDateTime reportTime) {
