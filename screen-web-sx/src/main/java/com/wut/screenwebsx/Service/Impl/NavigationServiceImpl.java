@@ -50,11 +50,6 @@ public class NavigationServiceImpl implements NavigationService {
         }
         maybeResetRealtimeDataOnEntry(phone);
 
-        int cleaned = ucCarRealTimeMapper.clearHistoryByPhoneKeepLatest(phone);
-        if (cleaned > 0) {
-            log.info("Cleaned historical uc_car_real_time rows for phone={}, deleted={}", phone, cleaned);
-        }
-
         UcCarRealTime carRealTime = ucCarRealTimeMapper.selectLatestByPhone(phone);
         if (carRealTime == null) {
             return ApiResponse.badRequest("暂无车辆实时数据");
