@@ -172,4 +172,38 @@ public class ResourceLibraryController {
                                              @Valid @RequestBody AssignTeamMembersReq req) {
         return ModelTransformUtil.getDefaultDataInstance("team members updated", resourceService.assignTeamMembers(teamId, req.getMemberIds()));
     }
+
+    /**
+     * 查询中队出警记录列表。
+     *
+     * @return 出警记录清单
+     */
+    @GetMapping("/dispatch-records")
+    public DefaultDataResp listDispatchRecords() {
+        return ModelTransformUtil.getDefaultDataInstance("中队出警记录", resourceService.listDispatchRecords());
+    }
+
+    /**
+     * 新增一条中队出警记录。
+     *
+     * @param body 出警记录字段（teamId/team、dispatchReason、dispatchTime 等）
+     * @return 新增后的记录
+     */
+    @PostMapping("/dispatch-records")
+    public DefaultDataResp createDispatchRecord(@RequestBody Map<String, Object> body) {
+        return ModelTransformUtil.getDefaultDataInstance("新增出警记录成功", resourceService.createDispatchRecord(body));
+    }
+
+    /**
+     * 标记中队归队，写入归队时间并更新状态。
+     *
+     * @param recordId 出警记录 ID
+     * @param body 可选字段（returnTime）
+     * @return 更新后的记录
+     */
+    @PutMapping("/dispatch-records/{recordId}/return")
+    public DefaultDataResp returnDispatchRecord(@PathVariable("recordId") String recordId,
+                                                @RequestBody(required = false) Map<String, Object> body) {
+        return ModelTransformUtil.getDefaultDataInstance("归队记录更新成功", resourceService.markDispatchRecordReturned(recordId, body));
+    }
 }

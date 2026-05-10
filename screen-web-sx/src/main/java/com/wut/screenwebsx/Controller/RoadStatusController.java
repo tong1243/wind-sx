@@ -92,6 +92,7 @@ public class RoadStatusController {
     @GetMapping("/section-parameter-detections")
     public DefaultDataResp listSectionParameterDetections(@RequestParam("timestamp") long timestamp,
                                                           @RequestParam(value = "direction", required = false) Integer direction) {
+        validateDirection(direction);
         return ModelTransformUtil.getDefaultDataInstance(
                 "section parameter detections",
                 roadStatusService.getSectionParameterDetections(timestamp, direction)
@@ -113,5 +114,14 @@ public class RoadStatusController {
                 "event detections",
                 roadStatusService.getEventDetectionInfos(timestamp)
         );
+    }
+
+    private void validateDirection(Integer direction) {
+        if (direction == null) {
+            return;
+        }
+        if (direction != 1 && direction != 2) {
+            throw new IllegalArgumentException("direction must be 1 or 2");
+        }
     }
 }

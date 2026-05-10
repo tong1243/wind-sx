@@ -38,6 +38,8 @@ public class WindControlWindImpactService {
     /** 4 小时时窗。 */
     private static final long WINDOW_4H_MS = 4L * 60 * 60 * 1000;
     /** 72 小时时窗。 */
+    private static final long WINDOW_2H_MS = 2L * 60 * 60 * 1000;
+    private static final long WINDOW_24H_MS = 24L * 60 * 60 * 1000;
     private static final long WINDOW_72H_MS = 72L * 60 * 60 * 1000;
     /** 默认时间格式。 */
     private static final DateTimeFormatter DATETIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -177,17 +179,25 @@ public class WindControlWindImpactService {
      * 4. 其余字段与原接口保持一致。
      *
      * @param timestamp 查询时间戳（毫秒）
-     * @param periodType real/future4h/all
+     * @param periodType real/future2h/all（兼容 future4h 入参）
      * @param direction 可选方向：1/2
      * @return 研判结果
      */
     public Map<String, Object> evaluateSpatiotemporalImpact(long timestamp, String periodType, Integer direction) {
         String normalizedPeriodType = periodType == null ? "all" : periodType.toLowerCase(Locale.ROOT);
+        if ("future4h".equals(normalizedPeriodType)) {
+            normalizedPeriodType = "future2h";
+        }
+        if (!"real".equals(normalizedPeriodType)
+                && !"future2h".equals(normalizedPeriodType)
+                && !"all".equals(normalizedPeriodType)) {
+            normalizedPeriodType = "all";
+        }
         Integer normalizedDirection = normalizeDirection(direction);
         LocalDateTime now = toLocalDateTime(timestamp);
 
         List<WindData> latestRows = windDataService.listLatestSnapshot(now);
-        List<WindData> future4hRows = windDataService.listByTimeRange(now, toLocalDateTime(timestamp + WINDOW_4H_MS));
+        List<WindData> future2hRows = windDataService.listByTimeRange(now, toLocalDateTime(timestamp + WINDOW_2H_MS));
 
         List<Map<String, Object>> records = new ArrayList<>();
         List<Map<String, Object>> intervals = listControlIntervals();
@@ -213,15 +223,15 @@ public class WindControlWindImpactService {
                 if (normalizedDirection != null && !normalizedDirection.equals(dir)) {
                     continue;
                 }
-                Map<String, Object> realRecord = buildImpactRecord(intervalName, stakeRange, timestamp, "real", dir, intervalSegments, latestRows, future4hRows);
-                Map<String, Object> future4hRecord = buildImpactRecord(intervalName, stakeRange, timestamp, "future4h", dir, intervalSegments, latestRows, future4hRows);
+                Map<String, Object> realRecord = buildImpactRecord(intervalName, stakeRange, timestamp, "real", dir, intervalSegments, latestRows, future2hRows);
+                Map<String, Object> future2hRecord = buildImpactRecord(intervalName, stakeRange, timestamp, "future2h", dir, intervalSegments, latestRows, future2hRows);
                 if ("real".equals(normalizedPeriodType)) {
                     records.add(realRecord);
-                } else if ("future4h".equals(normalizedPeriodType)) {
-                    records.add(future4hRecord);
+                } else if ("future2h".equals(normalizedPeriodType)) {
+                    records.add(future2hRecord);
                 } else {
                     records.add(realRecord);
-                    records.add(future4hRecord);
+                    records.add(future2hRecord);
                 }
             }
         }
@@ -257,7 +267,7 @@ public class WindControlWindImpactService {
         if ("real".equals(p)) {
             rows = windDataService.listLatestSnapshot(now);
         } else if ("history".equals(p)) {
-            rows = windDataService.listByTimeRange(toLocalDateTime(timestamp - WINDOW_72H_MS), now);
+            rows = windDataService.listByTimeRange(toLocalDateTime(timestamp - WINDOW_24H_MS), now);
         } else {
             rows = windDataService.listByTimeRange(now, toLocalDateTime(timestamp + WINDOW_72H_MS));
         }
@@ -322,13 +332,13 @@ public class WindControlWindImpactService {
     private Map<String, Object> buildImpactRecord(String intervalName,
                                                   String stakeRange,
                                                   long timestamp,
-                                                  String periodType,
-                                                  int direction,
-                                                  List<Map<String, Object>> intervalSegments,
-                                                  List<WindData> latestRows,
-                                                  List<WindData> future4hRows) {
-        Integer maxWindFromDb = "future4h".equals(periodType)
-                ? resolveMaxWindLevelFromRows(future4hRows, stakeRange, direction)
+                                                   String periodType,
+                                                   int direction,
+                                                   List<Map<String, Object>> intervalSegments,
+                                                   List<WindData> latestRows,
+                                                   List<WindData> future2hRows) {
+        Integer maxWindFromDb = "future2h".equals(periodType)
+                ? resolveMaxWindLevelFromRows(future2hRows, stakeRange, direction)
                 : resolveMaxWindLevelFromRows(latestRows, stakeRange, direction);
         int maxWind = maxWindFromDb == null
                 ? resolveFallbackMaxWind(intervalSegments, periodType, direction)
@@ -370,7 +380,7 @@ public class WindControlWindImpactService {
             if (rowDirection != direction) {
                 continue;
             }
-            int level = "future4h".equals(periodType)
+            int level = "future2h".equals(periodType)
                     ? Math.max(stateService.intValue(row.get("forecastWindLevel"), 0), stateService.intValue(row.get("max72hWindLevel"), 0))
                     : stateService.intValue(row.get("realWindLevel"), 0);
             maxWind = Math.max(maxWind, level);
@@ -656,7 +666,14 @@ public class WindControlWindImpactService {
         List<Integer> directionList = direction == null
                 ? List.of(DIRECTION_HAMI, DIRECTION_TURPAN)
                 : List.of(direction);
-        int points = "real".equals(period) ? 1 : 72;
+        int points;
+        if ("real".equals(period)) {
+            points = 1;
+        } else if ("history".equals(period)) {
+            points = 24;
+        } else {
+            points = 72;
+        }
         long stepMs = "real".equals(period) ? 5L * 60 * 1000 : 60L * 60 * 1000;
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
 

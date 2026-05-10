@@ -6,6 +6,7 @@ import com.wut.screendbmysqlsx.Model.Traj;
 import com.wut.screendbmysqlsx.Service.RoadSegmentStaticService;
 import com.wut.screendbmysqlsx.Service.TrajService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -21,6 +22,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -48,6 +50,9 @@ public class WindControlTrajectoryService {
     private static final Pattern STAKE_PATTERN = Pattern.compile("K(\\d+)(?:\\+(\\d+))?", Pattern.CASE_INSENSITIVE);
     /** 时间后缀 yyyy_MM_dd。 */
     private static final DateTimeFormatter TABLE_SUFFIX_UNDERSCORE = DateTimeFormatter.ofPattern("yyyy_MM_dd");
+    private static final String TRAJ_TABLE_PREFIX = "traj_near_real_";
+    private static final String TABLE_EXISTS_SQL =
+            "SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ? LIMIT 1";
 
     /** 轨迹数据服务。 */
     private final TrajService trajService;
@@ -55,6 +60,8 @@ public class WindControlTrajectoryService {
     private final RoadSegmentStaticService roadSegmentStaticService;
     /** 公共状态服务（用于安全取值与统一组装行结构）。 */
     private final WindControlStateService stateService;
+    private final JdbcTemplate jdbcTemplate;
+    private final Map<String, Boolean> trajectoryTableExistenceCache = new ConcurrentHashMap<>();
 
     /**
      * 构造函数。
@@ -65,10 +72,12 @@ public class WindControlTrajectoryService {
      */
     public WindControlTrajectoryService(TrajService trajService,
                                         RoadSegmentStaticService roadSegmentStaticService,
-                                        WindControlStateService stateService) {
+                                        WindControlStateService stateService,
+                                        JdbcTemplate jdbcTemplate) {
         this.trajService = trajService;
         this.roadSegmentStaticService = roadSegmentStaticService;
         this.stateService = stateService;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     /**
@@ -235,6 +244,18 @@ public class WindControlTrajectoryService {
                         "timestamp", timestamp
                 ));
             }
+            // speedX 为负值时，判定为逆行事件。
+            if (match.rawSpeedX != null && match.rawSpeedX < 0D) {
+                rows.add(stateService.row(
+                        "eventId", buildEventId(timestamp, seq++),
+                        "eventType", "REVERSE",
+                        "segment", match.section.segmentName,
+                        "vehiclePlate", vehiclePlate,
+                        "thresholdSpeedKmPerHour", 0,
+                        "status", "UNPROCESSED",
+                        "timestamp", timestamp
+                ));
+            }
             if (rows.size() >= 200) {
                 break;
             }
@@ -330,7 +351,7 @@ public class WindControlTrajectoryService {
                     metric.speedSum += speedKmh;
                     metric.speedCount++;
                 }
-                result.latestMatchList.add(new LatestMatch(trajId, latest, latestSection, speedKmh));
+                result.latestMatchList.add(new LatestMatch(trajId, latest, latestSection, speedKmh, latest.getSpeedX()));
             }
         }
 
@@ -382,18 +403,12 @@ public class WindControlTrajectoryService {
                 .toLocalDate().format(TABLE_SUFFIX_UNDERSCORE);
 
         List<Traj> primary = queryTrajectoryWindow(primarySuffix, windowStart, timestamp);
-        if (primary != null && !primary.isEmpty()) {
+        // If primary naming query succeeds (including empty result), trust it directly.
+        if (primary != null) {
             return primary;
         }
 
         List<Traj> secondary = queryTrajectoryWindow(secondarySuffix, windowStart, timestamp);
-        if (secondary != null && !secondary.isEmpty()) {
-            return secondary;
-        }
-
-        if (primary != null) {
-            return primary;
-        }
         if (secondary != null) {
             return secondary;
         }
@@ -405,13 +420,55 @@ public class WindControlTrajectoryService {
      * 执行单次轨迹查询。查询异常时返回 null，便于上层继续尝试其他后缀。
      */
     private List<Traj> queryTrajectoryWindow(String suffix, long startTimestamp, long endTimestamp) {
+        if (!trajectoryTableExists(suffix)) {
+            log.debug("trajectory table not found (pre-check), suffix={}, fallback enabled", suffix);
+            return null;
+        }
         try {
             List<Traj> rows = trajService.getListByTimestampRange(suffix, startTimestamp, endTimestamp);
             return rows == null ? Collections.emptyList() : rows;
         } catch (Exception ex) {
-            log.debug("轨迹查询失败，suffix={}", suffix, ex);
+            // Daily trajectory tables may not exist for every naming convention.
+            if (isTableNotExistsError(ex)) {
+                log.debug("trajectory table not found, suffix={}, fallback enabled", suffix);
+                return null;
+            }
+            log.warn("trajectory query failed, suffix={}, reason={}", suffix, ex.getMessage());
             return null;
         }
+    }
+
+    private boolean trajectoryTableExists(String suffix) {
+        String tableName = TRAJ_TABLE_PREFIX + suffix;
+        return trajectoryTableExistenceCache.computeIfAbsent(tableName, this::queryTableExists);
+    }
+
+    private boolean queryTableExists(String tableName) {
+        try {
+            Integer flag = jdbcTemplate.queryForObject(TABLE_EXISTS_SQL, Integer.class, tableName);
+            return flag != null && flag == 1;
+        } catch (Exception ex) {
+            // Metadata query failure should not block business fallback.
+            log.debug("trajectory table existence check failed, table={}, reason={}", tableName, ex.getMessage());
+            return true;
+        }
+    }
+
+    private boolean isTableNotExistsError(Throwable ex) {
+        Throwable current = ex;
+        while (current != null) {
+            String msg = current.getMessage();
+            if (msg != null) {
+                String lower = msg.toLowerCase(Locale.ROOT);
+                if (lower.contains("doesn't exist")
+                        || lower.contains("does not exist")
+                        || (lower.contains("table") && lower.contains("不存在"))) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     /**
@@ -655,7 +712,7 @@ public class WindControlTrajectoryService {
      */
     private String mapCongestionStatus(Double avgSpeedKmh) {
         if (avgSpeedKmh == null) {
-            return "NO_DATA";
+            return "CONGESTED";
         }
         if (avgSpeedKmh > 80D) {
             return "SMOOTH";
@@ -772,12 +829,14 @@ public class WindControlTrajectoryService {
         private final Traj traj;
         private final SectionContext section;
         private final Double speedKmh;
+        private final Double rawSpeedX;
 
-        private LatestMatch(Long trajId, Traj traj, SectionContext section, Double speedKmh) {
+        private LatestMatch(Long trajId, Traj traj, SectionContext section, Double speedKmh, Double rawSpeedX) {
             this.trajId = trajId;
             this.traj = traj;
             this.section = section;
             this.speedKmh = speedKmh;
+            this.rawSpeedX = rawSpeedX;
         }
     }
 

@@ -42,32 +42,33 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
     private static final int RESERVATION_APPROVED = 1;
     private static final int RESERVATION_REJECTED = 0;
     private static final Map<String, String> REJECT_ITEM_OPTIONS = buildRejectItemOptions();
+    private static final Map<String, String> LEGACY_REJECT_ITEM_OPTIONS = buildLegacyRejectItemOptions();
 
     @Override
     public ApiResponse<?> getRealtimeVehicleTable(long pageNo, long pageSize, String vehicleId, String licensePlate, String direction) {
-        LambdaQueryWrapper<UcCarRealTime> wrapper = new LambdaQueryWrapper<UcCarRealTime>()
-                .orderByDesc(UcCarRealTime::getReportTime)
-                .eq(hasText(vehicleId), UcCarRealTime::getUserPhone, vehicleId)
-                .eq(hasText(licensePlate), UcCarRealTime::getCarLicense, licensePlate);
+        long safePageNo = safePageNo(pageNo);
+        long safePageSize = safePageSize(pageSize);
+        String vehicleIdFilter = trimToNull(vehicleId);
+        String licensePlateFilter = trimToNull(licensePlate);
         Integer directionCode = toDirectionCode(direction);
-        if (hasText(direction)) {
-            if (directionCode != null) {
-                wrapper.eq(UcCarRealTime::getDirection, directionCode);
-            } else {
-                wrapper.eq(UcCarRealTime::getDrivingDirection, direction);
-            }
+        String directionFilter = trimToNull(direction);
+        long total = ucCarRealTimeMapper.countCurrentForOperation(
+                vehicleIdFilter, licensePlateFilter, directionCode, directionFilter);
+        if (total <= 0) {
+            return ApiResponse.success("realtime vehicle table loaded", emptyPage(pageNo, pageSize));
         }
+        long offset = Math.max(0, (safePageNo - 1) * safePageSize);
+        List<UcCarRealTime> records = ucCarRealTimeMapper.selectCurrentPageForOperation(
+                offset, safePageSize, vehicleIdFilter, licensePlateFilter, directionCode, directionFilter);
 
-        Page<UcCarRealTime> page = ucCarRealTimeMapper.selectPage(new Page<>(safePageNo(pageNo), safePageSize(pageSize)), wrapper);
-
-        List<String> licensePlates = page.getRecords().stream()
+        List<String> licensePlates = records.stream()
                 .map(UcCarRealTime::getCarLicense)
                 .filter(Objects::nonNull)
                 .distinct()
                 .toList();
 
         Map<String, String> vehicleTypeMap = loadVehicleTypeMap(licensePlates);
-        List<OperationMaintenanceResp.RealtimeVehicleRow> rows = page.getRecords().stream().map(item -> {
+        List<OperationMaintenanceResp.RealtimeVehicleRow> rows = records.stream().map(item -> {
             OperationMaintenanceResp.RealtimeVehicleRow row = new OperationMaintenanceResp.RealtimeVehicleRow();
             row.setId(item.getUserPhone());
             row.setCurrentLocation(item.getCurrentPile());
@@ -79,7 +80,7 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
             return row;
         }).toList();
 
-        return ApiResponse.success("realtime vehicle table loaded", buildPage(page, rows));
+        return ApiResponse.success("realtime vehicle table loaded", buildPage(safePageNo, safePageSize, total, rows));
     }
 
     @Override
@@ -197,7 +198,7 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         detail.setRegisterDate(carInfo.getRegisterDate());
         detail.setLicensePhoto(carInfo.getLicensePhoto());
         detail.setCurrentPoints(carInfo.getCurrentPoints());
-        detail.setRejectReason(carInfo.getRejectReason());
+        detail.setRejectReason(toDisplayRejectReason(carInfo.getRejectReason()));
         detail.setCheckItems(buildCheckItems(carInfo.getRejectReason()));
         detail.setReservationStats(buildReservationStats(licensePlate));
         detail.setLatestReservation(buildLatestReservation(licensePlate));
@@ -337,8 +338,20 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
                 result.add(label);
                 continue;
             }
+            String legacyLabel = LEGACY_REJECT_ITEM_OPTIONS.get(trimmed);
+            if (legacyLabel != null) {
+                result.add(legacyLabel);
+                continue;
+            }
             if (REJECT_ITEM_OPTIONS.containsValue(trimmed)) {
                 result.add(trimmed);
+                continue;
+            }
+            if (LEGACY_REJECT_ITEM_OPTIONS.containsValue(trimmed)) {
+                String normalized = mapLegacyLabelToCurrent(trimmed);
+                if (normalized != null) {
+                    result.add(normalized);
+                }
             }
         }
         return result.stream().distinct().toList();
@@ -371,6 +384,15 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         pageData.setPageSize(safePageSize(pageSize));
         pageData.setTotal(0);
         pageData.setRecords(Collections.emptyList());
+        return pageData;
+    }
+
+    private <T> OperationMaintenanceResp.PageData<T> buildPage(long pageNo, long pageSize, long total, List<T> rows) {
+        OperationMaintenanceResp.PageData<T> pageData = new OperationMaintenanceResp.PageData<>();
+        pageData.setPageNo(pageNo);
+        pageData.setPageSize(pageSize);
+        pageData.setTotal(Math.max(total, 0));
+        pageData.setRecords(rows == null ? Collections.emptyList() : rows);
         return pageData;
     }
 
@@ -458,6 +480,47 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
+    private String mapLegacyLabelToCurrent(String legacyLabel) {
+        for (Map.Entry<String, String> entry : LEGACY_REJECT_ITEM_OPTIONS.entrySet()) {
+            if (entry.getValue().equals(legacyLabel)) {
+                return REJECT_ITEM_OPTIONS.get(entry.getKey());
+            }
+        }
+        return null;
+    }
+
+    private String toDisplayRejectReason(String rejectReason) {
+        if (!hasText(rejectReason)) {
+            return rejectReason;
+        }
+        List<String> result = new ArrayList<>();
+        for (String token : rejectReason.split("[,;|]")) {
+            if (!hasText(token)) {
+                continue;
+            }
+            String trimmed = token.trim();
+            if (trimmed.startsWith("remark:")) {
+                String remark = trimmed.substring("remark:".length()).trim();
+                result.add(hasText(remark) ? "\u5907\u6ce8:" + remark : "\u5907\u6ce8");
+                continue;
+            }
+            if (REJECT_ITEM_OPTIONS.containsKey(trimmed)) {
+                result.add(REJECT_ITEM_OPTIONS.get(trimmed));
+                continue;
+            }
+            if (REJECT_ITEM_OPTIONS.containsValue(trimmed)) {
+                result.add(trimmed);
+                continue;
+            }
+            if (LEGACY_REJECT_ITEM_OPTIONS.containsValue(trimmed)) {
+                String normalized = mapLegacyLabelToCurrent(trimmed);
+                result.add(normalized == null ? trimmed : normalized);
+                continue;
+            }
+            result.add(trimmed);
+        }
+        return result.isEmpty() ? rejectReason : String.join("\uff1b", result);
+    }
     private LocalDateTime parseDateTime(String value, String fieldName) {
         if (!hasText(value)) {
             return null;
@@ -491,6 +554,13 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
 
     private boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
+    }
+
+    private String trimToNull(String value) {
+        if (!hasText(value)) {
+            return null;
+        }
+        return value.trim();
     }
 
     private String normalizeRejectReason(String rejectReason) {
@@ -553,6 +623,20 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
 
     private static Map<String, String> buildRejectItemOptions() {
         Map<String, String> options = new LinkedHashMap<>();
+        options.put("plate", "\u8f66\u724c\u53f7\u6709\u8bef");
+        options.put("vehicleType", "\u8f66\u8f86\u7c7b\u578b\u6709\u8bef");
+        options.put("owner", "\u6240\u6709\u4eba\u4fe1\u606f\u6709\u8bef");
+        options.put("usageNature", "\u4f7f\u7528\u6027\u8d28\u6709\u8bef");
+        options.put("brandModel", "\u54c1\u724c\u578b\u53f7\u6709\u8bef");
+        options.put("vin", "VIN \u7801\u6709\u8bef");
+        options.put("engineNumber", "\u53d1\u52a8\u673a\u53f7\u6709\u8bef");
+        options.put("registerDate", "\u6ce8\u518c\u65e5\u671f\u6709\u8bef");
+        options.put("other", "\u5176\u4ed6");
+        return options;
+    }
+
+    private static Map<String, String> buildLegacyRejectItemOptions() {
+        Map<String, String> options = new LinkedHashMap<>();
         options.put("plate", "plate number error");
         options.put("vehicleType", "vehicle type error");
         options.put("owner", "owner error");
@@ -565,4 +649,5 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         return options;
     }
 }
+
 

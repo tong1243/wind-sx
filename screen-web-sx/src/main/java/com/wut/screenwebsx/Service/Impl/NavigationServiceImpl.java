@@ -50,7 +50,10 @@ public class NavigationServiceImpl implements NavigationService {
         }
         maybeResetRealtimeDataOnEntry(phone);
 
-        UcCarRealTime carRealTime = ucCarRealTimeMapper.selectLatestByPhone(phone);
+        UcCarRealTime carRealTime = ucCarRealTimeMapper.selectLatestByPhoneFromCurrent(phone);
+        if (carRealTime == null) {
+            carRealTime = ucCarRealTimeMapper.selectLatestByPhone(phone);
+        }
         if (carRealTime == null) {
             return ApiResponse.badRequest("暂无车辆实时数据");
         }
@@ -64,6 +67,7 @@ public class NavigationServiceImpl implements NavigationService {
         CarInfoResponse response = new CarInfoResponse();
         response.setSpeed(carRealTime.getRealSpeed());
         response.setLane(carRealTime.getLaneNumber());
+        response.setLine(carRealTime.getLaneNumber());
         response.setRoad(resolveRoadCode(carRealTime));
         response.setPile(carRealTime.getCurrentPile());
         response.setDirection(resolveDirectionCode(carRealTime));
@@ -204,6 +208,7 @@ public class NavigationServiceImpl implements NavigationService {
     public static class CarInfoResponse {
         private Integer speed;
         private Integer lane;
+        private Integer line;
         private Integer road;
         private String pile;
         private Integer direction;
@@ -223,6 +228,14 @@ public class NavigationServiceImpl implements NavigationService {
 
         public void setLane(Integer lane) {
             this.lane = lane;
+        }
+
+        public Integer getLine() {
+            return line;
+        }
+
+        public void setLine(Integer line) {
+            this.line = line;
         }
 
         public Integer getRoad() {

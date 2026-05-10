@@ -7,19 +7,26 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 4.3 人员设备库业务服务。
  */
 @Service
 public class WindControlResourceService {
+    /** 中队出警记录快照分类。*/
+    private static final String CAT_DISPATCH_RECORD = "DISPATCH_RECORD";
+
     private final WindControlStateService stateService;
+    private final WindControlPersistenceService persistenceService;
 
     /**
      * 构造资源库服务并注入共享状态；该服务负责 4.3 模块数据的增删改查与约束校验。
      */
-    public WindControlResourceService(WindControlStateService stateService) {
+    public WindControlResourceService(WindControlStateService stateService,
+                                      WindControlPersistenceService persistenceService) {
         this.stateService = stateService;
+        this.persistenceService = persistenceService;
     }
 
     /**
@@ -152,6 +159,61 @@ public class WindControlResourceService {
     }
 
     /**
+     * 查询中队出警记录，按出警时间倒序返回。
+     */
+    public List<Map<String, Object>> listDispatchRecords() {
+        List<Map<String, Object>> rows = persistenceService.listByCategory(CAT_DISPATCH_RECORD);
+        rows.sort((a, b) -> Long.compare(
+                toLong(b.get("dispatchTime"), 0L),
+                toLong(a.get("dispatchTime"), 0L)
+        ));
+        return rows;
+    }
+
+    /**
+     * 新增一条中队出警记录。
+     */
+    public Map<String, Object> createDispatchRecord(Map<String, Object> body) {
+        Map<String, Object> record = body == null ? new LinkedHashMap<>() : new LinkedHashMap<>(body);
+        String recordId = stateService.stringValue(record.get("recordId"));
+        if (recordId.isBlank()) {
+            recordId = "DISP-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        }
+        long now = System.currentTimeMillis();
+        long dispatchTime = toLong(record.get("dispatchTime"), now);
+        String dispatchStatus = stateService.stringValue(record.get("dispatchStatus"));
+        if (dispatchStatus.isBlank()) {
+            dispatchStatus = "DISPATCHED";
+        }
+
+        record.put("recordId", recordId);
+        record.put("dispatchTime", dispatchTime);
+        record.put("dispatchStatus", dispatchStatus);
+        if (!record.containsKey("returnTime")) {
+            record.put("returnTime", null);
+        }
+        persistenceService.upsertCategory(CAT_DISPATCH_RECORD, recordId, record);
+        return record;
+    }
+
+    /**
+     * 更新中队归队时间并将状态改为 RETURNED。
+     */
+    public Map<String, Object> markDispatchRecordReturned(String recordId, Map<String, Object> body) {
+        Map<String, Object> record = persistenceService.getByCategoryAndKey(CAT_DISPATCH_RECORD, recordId);
+        if (record == null) {
+            throw new IllegalArgumentException("未找到出警记录: " + recordId);
+        }
+        long returnTime = body == null
+                ? System.currentTimeMillis()
+                : toLong(body.get("returnTime"), System.currentTimeMillis());
+        record.put("returnTime", returnTime);
+        record.put("dispatchStatus", "RETURNED");
+        persistenceService.upsertCategory(CAT_DISPATCH_RECORD, recordId, record);
+        return record;
+    }
+
+    /**
      * 判断请求体是否包含受限字段（成员/组长/基础信息），用于出警态编辑拦截。
      */
     private boolean containsEditableTeamFields(Map<String, Object> body) {
@@ -169,6 +231,23 @@ public class WindControlResourceService {
      */
     private boolean isDispatchedState(String dispatchState) {
         return "DISPATCHED".equalsIgnoreCase(dispatchState) || "ON_DUTY".equalsIgnoreCase(dispatchState);
+    }
+
+    /**
+     * 统一长整型取值，支持 Number 和字符串并提供默认值。
+     */
+    private long toLong(Object value, long defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (Exception ex) {
+            return defaultValue;
+        }
     }
 
     /**
