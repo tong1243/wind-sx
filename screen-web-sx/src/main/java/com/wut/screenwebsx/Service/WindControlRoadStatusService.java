@@ -1,5 +1,6 @@
 package com.wut.screenwebsx.Service;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -19,6 +20,7 @@ import java.util.Set;
  * 3) Always normalize response payloads to match docs/第四章-接口文档.md (4.1).
  */
 @Service
+@Slf4j
 public class WindControlRoadStatusService {
     private final WindControlStateService stateService;
     private final WindControlWindImpactService windImpactService;
@@ -67,6 +69,9 @@ public class WindControlRoadStatusService {
     public List<Map<String, Object>> getServiceAreaVehicleStats(long timestamp) {
         List<Map<String, Object>> realRows = trajectoryService.buildServiceAreaVehicleStats(timestamp, stateService.getFullLineWindSections());
         List<Map<String, Object>> rows = realRows != null ? realRows : buildFallbackServiceAreaVehicleStats(timestamp);
+        if (realRows == null) {
+            log.info("4.1.4 service-areas fallback data used, timestamp={}", timestamp);
+        }
         return normalizeServiceAreaRows(rows, timestamp);
     }
 
@@ -76,6 +81,9 @@ public class WindControlRoadStatusService {
     public List<Map<String, Object>> getTrafficStateAnalysis(long timestamp) {
         List<Map<String, Object>> realRows = trajectoryService.buildTrafficStateAnalysis(timestamp, stateService.getFullLineWindSections());
         List<Map<String, Object>> rows = realRows != null ? realRows : buildFallbackTrafficStateAnalysis();
+        if (realRows == null) {
+            log.info("4.1.5 traffic-states fallback data used, timestamp={}", timestamp);
+        }
         return normalizeTrafficStateRows(rows);
     }
 
@@ -87,6 +95,9 @@ public class WindControlRoadStatusService {
         List<Map<String, Object>> rows = realRows != null
                 ? filterByDirection(realRows, direction)
                 : buildFallbackSectionParameterDetections(timestamp, direction);
+        if (realRows == null) {
+            log.info("4.1.2 section-parameter-detections fallback data used, timestamp={}, direction={}", timestamp, direction);
+        }
         return normalizeSectionParameterRows(rows, timestamp);
     }
 
@@ -100,6 +111,9 @@ public class WindControlRoadStatusService {
                 stateService.getSpeedThresholdByWindLevel()
         );
         List<Map<String, Object>> rows = realRows != null ? realRows : buildFallbackEventDetections(timestamp);
+        if (realRows == null) {
+            log.info("4.1.3 event-detections fallback data used, timestamp={}", timestamp);
+        }
         return normalizeEventRows(rows, timestamp);
     }
 
