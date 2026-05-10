@@ -1,4 +1,4 @@
-﻿package com.wut.screenwebsx.Service;
+package com.wut.screenwebsx.Service;
 
 import org.springframework.stereotype.Service;
 
