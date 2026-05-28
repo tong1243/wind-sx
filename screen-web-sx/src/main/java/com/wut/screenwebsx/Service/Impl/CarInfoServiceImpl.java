@@ -12,9 +12,13 @@ import com.wut.screencommonsx.Response.ApiResponse;
 import com.wut.screenwebsx.Mapper.CarInfoMapper;
 import com.wut.screenwebsx.Mapper.UserAccountMapper;
 import com.wut.screenwebsx.Service.CarInfoService;
+import com.wut.screenwebsx.Service.UserNoticePublishService;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,6 +54,39 @@ public class CarInfoServiceImpl extends ServiceImpl<CarInfoMapper, CarInfo> impl
 
     private final CarInfoMapper carInfoMapper;
     private final UserAccountMapper userAccountMapper;
+    private final UserNoticePublishService userNoticePublishService;
+    private final JdbcTemplate jdbcTemplate;
+
+    @PostConstruct
+    public void initCarInfoSchema() {
+        try {
+            Integer tableCount = jdbcTemplate.queryForObject("""
+                    SELECT COUNT(1)
+                    FROM information_schema.TABLES
+                    WHERE TABLE_SCHEMA = DATABASE()
+                      AND TABLE_NAME = 'car_info'
+                    """, Integer.class);
+            if (tableCount == null || tableCount <= 0) {
+                return;
+            }
+
+            Integer columnCount = jdbcTemplate.queryForObject("""
+                    SELECT COUNT(1)
+                    FROM information_schema.COLUMNS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                      AND TABLE_NAME = 'car_info'
+                      AND COLUMN_NAME = 'submitter_phone'
+                    """, Integer.class);
+            if (columnCount == null || columnCount <= 0) {
+                jdbcTemplate.execute("""
+                        ALTER TABLE car_info
+                        ADD COLUMN submitter_phone VARCHAR(32) NULL COMMENT '提交登记的用户手机号'
+                        """);
+            }
+        } catch (Exception ex) {
+            log.error("初始化 car_info.submitter_phone 字段失败", ex);
+        }
+    }
 
     @Override
     public ApiResponse<List<CarInfo>> getMyVehicles(String phone) {
@@ -60,7 +97,8 @@ public class CarInfoServiceImpl extends ServiceImpl<CarInfoMapper, CarInfo> impl
         }
 
         List<CarInfo> carList = list(new LambdaQueryWrapper<CarInfo>()
-                .in(CarInfo::getLicensePlate, licensePlates));
+                .in(CarInfo::getLicensePlate, licensePlates)
+                .eq(CarInfo::getAuditStatus, "passed"));
         carList.forEach(car -> car.setVin(hideVin(car.getVin())));
         return ApiResponse.success("成功", carList);
     }
@@ -70,19 +108,22 @@ public class CarInfoServiceImpl extends ServiceImpl<CarInfoMapper, CarInfo> impl
     public ApiResponse<?> registerVehicle(VehicleRegisterRequest request, String phone) {
         String licensePlate = normalizeLicensePlate(request.getLicensePlate());
         String vehicleType = normalizeVehicleType(request.getVehicleType());
+        String vin = normalizeVin(request.getVin());
         String licensePhoto = normalizeLicensePhoto(request.getLicensePhoto());
 
+        ensureUserHasAvailableCarSlot(phone);
         if (exists(new LambdaQueryWrapper<CarInfo>().eq(CarInfo::getLicensePlate, licensePlate))) {
             throw BusinessException.badRequest("车牌号已存在");
         }
-        if (request.getVin().length() != 17) {
-            throw BusinessException.badRequest("车架号必须为17位");
+        if (exists(new LambdaQueryWrapper<CarInfo>().eq(CarInfo::getVin, vin))) {
+            throw BusinessException.badRequest("车架号已存在");
         }
 
         CarInfo carInfo = new CarInfo();
         BeanUtils.copyProperties(request, carInfo);
         carInfo.setLicensePlate(licensePlate);
         carInfo.setVehicleType(vehicleType);
+        carInfo.setVin(vin);
         carInfo.setLicensePhoto(licensePhoto);
         try {
             carInfo.setRegisterDate(LocalDate.parse(request.getRegistrationDate()));
@@ -90,10 +131,25 @@ public class CarInfoServiceImpl extends ServiceImpl<CarInfoMapper, CarInfo> impl
             throw BusinessException.badRequest("注册日期格式不正确");
         }
         carInfo.setAuditStatus("unaudited");
+        carInfo.setSubmitterPhone(phone);
         carInfo.setCurrentPoints(12);
-        save(carInfo);
+        try {
+            save(carInfo);
+        } catch (DuplicateKeyException ex) {
+            String duplicateField = resolveDuplicateField(ex);
+            if ("vin".equals(duplicateField)) {
+                throw BusinessException.badRequest("车架号已存在");
+            }
+            if ("licensePlate".equals(duplicateField)) {
+                throw BusinessException.badRequest("车牌号已存在");
+            }
+            if ("engineNumber".equals(duplicateField)) {
+                throw BusinessException.badRequest("发动机号已存在");
+            }
+            throw BusinessException.badRequest("车辆信息重复，请检查车牌号/车架号是否已存在");
+        }
 
-        bindCarToUser(phone, licensePlate);
+        userNoticePublishService.publishVehicleRegisterSubmitted(phone, carInfo);
         return ApiResponse.success("车辆登记成功，等待审核", null);
     }
 
@@ -102,8 +158,8 @@ public class CarInfoServiceImpl extends ServiceImpl<CarInfoMapper, CarInfo> impl
     public ApiResponse<?> updateVehicle(String licensePlate, VehicleUpdateRequest request, String phone) {
         String normalizedLicense = normalizeLicensePlate(licensePlate);
         UserAccount user = loadUserOrThrow(phone);
-        ensureVehicleBoundToUser(user, normalizedLicense);
         CarInfo carInfo = loadVehicleByLicenseOrThrow(normalizedLicense);
+        ensureVehicleOperableByUser(user, carInfo, phone);
 
         boolean changed = false;
         changed |= applyVehicleName(carInfo, request.getVehicleName());
@@ -123,7 +179,21 @@ public class CarInfoServiceImpl extends ServiceImpl<CarInfoMapper, CarInfo> impl
         carInfo.setAuditStatus("unaudited");
         carInfo.setRejectReason(null);
         carInfo.setUpdateTime(LocalDateTime.now());
-        carInfoMapper.updateById(carInfo);
+        try {
+            carInfoMapper.updateById(carInfo);
+        } catch (DuplicateKeyException ex) {
+            String duplicateField = resolveDuplicateField(ex);
+            if ("vin".equals(duplicateField)) {
+                throw BusinessException.badRequest("车架号已存在");
+            }
+            if ("licensePlate".equals(duplicateField)) {
+                throw BusinessException.badRequest("车牌号已存在");
+            }
+            if ("engineNumber".equals(duplicateField)) {
+                throw BusinessException.badRequest("发动机号已存在");
+            }
+            throw BusinessException.badRequest("车辆信息重复，请检查车牌号/车架号是否已存在");
+        }
         return ApiResponse.success("车辆信息更新成功，等待重新审核", null);
     }
 
@@ -132,11 +202,13 @@ public class CarInfoServiceImpl extends ServiceImpl<CarInfoMapper, CarInfo> impl
     public ApiResponse<?> deleteVehicle(String licensePlate, String phone) {
         String normalizedLicense = normalizeLicensePlate(licensePlate);
         UserAccount user = loadUserOrThrow(phone);
-        ensureVehicleBoundToUser(user, normalizedLicense);
-        loadVehicleByLicenseOrThrow(normalizedLicense);
+        CarInfo carInfo = loadVehicleByLicenseOrThrow(normalizedLicense);
+        ensureVehicleOperableByUser(user, carInfo, phone);
 
-        unbindCarFromUser(user, normalizedLicense);
-        persistUserCarBindings(user);
+        if (isVehicleBoundToUser(user, normalizedLicense)) {
+            unbindCarFromUser(user, normalizedLicense);
+            persistUserCarBindings(user);
+        }
 
         carInfoMapper.delete(new LambdaQueryWrapper<CarInfo>()
                 .eq(CarInfo::getLicensePlate, normalizedLicense));
@@ -185,12 +257,15 @@ public class CarInfoServiceImpl extends ServiceImpl<CarInfoMapper, CarInfo> impl
         if (rawVin == null) {
             return false;
         }
-        String vin = rawVin.trim();
-        if (!vin.matches("^[A-Z0-9]{17}$")) {
-            throw BusinessException.badRequest("车架号必须为17位大写字母或数字");
-        }
+        String vin = normalizeVin(rawVin);
         if (vin.equals(carInfo.getVin())) {
             return false;
+        }
+        boolean duplicated = exists(new LambdaQueryWrapper<CarInfo>()
+                .eq(CarInfo::getVin, vin)
+                .ne(carInfo.getId() != null, CarInfo::getId, carInfo.getId()));
+        if (duplicated) {
+            throw BusinessException.badRequest("车架号已存在");
         }
         carInfo.setVin(vin);
         return true;
@@ -265,6 +340,15 @@ public class CarInfoServiceImpl extends ServiceImpl<CarInfoMapper, CarInfo> impl
         userAccountMapper.updateById(user);
     }
 
+    private void ensureUserHasAvailableCarSlot(String phone) {
+        UserAccount user = loadUserOrThrow(phone);
+        if (hasText(user.getCar1License())
+                && hasText(user.getCar2License())
+                && hasText(user.getCar3License())) {
+            throw BusinessException.badRequest("每个账号最多绑定3辆车，请先删除一辆已绑定车辆");
+        }
+    }
+
     private void unbindCarFromUser(UserAccount user, String licensePlate) {
         List<String> remain = new ArrayList<>();
         boolean removed = false;
@@ -320,6 +404,17 @@ public class CarInfoServiceImpl extends ServiceImpl<CarInfoMapper, CarInfo> impl
         }
     }
 
+    private void ensureVehicleOperableByUser(UserAccount user, CarInfo carInfo, String phone) {
+        if (user == null || carInfo == null) {
+            throw BusinessException.notFound("未找到车辆");
+        }
+        boolean boundToUser = isVehicleBoundToUser(user, carInfo.getLicensePlate());
+        boolean submittedByUser = samePhone(carInfo.getSubmitterPhone(), phone);
+        if (!boundToUser && !submittedByUser) {
+            throw BusinessException.notFound("未找到车辆");
+        }
+    }
+
     private boolean isVehicleBoundToUser(UserAccount user, String licensePlate) {
         return sameLicense(user.getCar1License(), licensePlate)
                 || sameLicense(user.getCar2License(), licensePlate)
@@ -362,6 +457,17 @@ public class CarInfoServiceImpl extends ServiceImpl<CarInfoMapper, CarInfo> impl
         return value;
     }
 
+    private String normalizeVin(String rawVin) {
+        if (!hasText(rawVin)) {
+            throw BusinessException.badRequest("车架号不能为空");
+        }
+        String vin = rawVin.trim();
+        if (!vin.matches("^[A-Z0-9]{17}$")) {
+            throw BusinessException.badRequest("车架号必须为17位大写字母或数字");
+        }
+        return vin;
+    }
+
     private String normalizeLicensePhoto(String rawLicensePhoto) {
         if (!hasText(rawLicensePhoto)) {
             throw BusinessException.badRequest("行驶证照片不能为空");
@@ -401,7 +507,42 @@ public class CarInfoServiceImpl extends ServiceImpl<CarInfoMapper, CarInfo> impl
         return left.trim().equalsIgnoreCase(right.trim());
     }
 
+    private boolean samePhone(String left, String right) {
+        if (!hasText(left) || !hasText(right)) {
+            return false;
+        }
+        return left.trim().equals(right.trim());
+    }
+
     private boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
+    }
+
+    private String resolveDuplicateField(Throwable ex) {
+        Throwable current = ex;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null) {
+                String lower = message.toLowerCase(Locale.ROOT);
+                if (lower.contains("uk_vin")
+                        || lower.contains("car_info.uk_vin")
+                        || (lower.contains("duplicate entry") && lower.contains("vin"))) {
+                    return "vin";
+                }
+                if (lower.contains("uk_license")
+                        || lower.contains("uk_license_plate")
+                        || lower.contains("license_plate")
+                        || (lower.contains("duplicate entry") && lower.contains("plate"))) {
+                    return "licensePlate";
+                }
+                if (lower.contains("uk_engine")
+                        || lower.contains("engine_number")
+                        || (lower.contains("duplicate entry") && lower.contains("engine"))) {
+                    return "engineNumber";
+                }
+            }
+            current = current.getCause();
+        }
+        return "unknown";
     }
 }

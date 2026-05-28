@@ -26,7 +26,7 @@ public class WindData {
     @TableField("time_stamp")
     private LocalDateTime timeStamp;
 
-    /** 方向编码：1=吐鲁番方向，2=哈密方向。 */
+    /** 方向编码：1=去往哈密方向，2=去往吐鲁番方向。 */
     @TableField("direction")
     private Integer direction;
 

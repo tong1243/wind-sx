@@ -30,8 +30,8 @@ import java.util.Map;
 @RequiredArgsConstructor
 @ConditionalOnProperty(prefix = "wind.realtime", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class WindRealtimeDataContext {
-    private static final int DIRECTION_TURPAN = 1;
-    private static final int DIRECTION_HAMI = 2;
+    private static final int DIRECTION_HAMI = 1;
+    private static final int DIRECTION_TURPAN = 2;
     private static final DateTimeFormatter DEFAULT_TIME_PATTERN = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final WindDataService windDataService;
@@ -229,11 +229,11 @@ public class WindRealtimeDataContext {
         }
 
         if (duplicateBothDirectionsWhenMissing) {
-            return List.of(DIRECTION_TURPAN, DIRECTION_HAMI);
+            return List.of(DIRECTION_HAMI, DIRECTION_TURPAN);
         }
 
         Integer fallback = normalizeDirection(Integer.toString(defaultDirection));
-        return List.of(fallback == null ? DIRECTION_TURPAN : fallback);
+        return List.of(fallback == null ? DIRECTION_HAMI : fallback);
     }
 
     private Integer normalizeDirection(String value) {
@@ -242,11 +242,11 @@ public class WindRealtimeDataContext {
         }
 
         String text = value.trim().toLowerCase(Locale.ROOT);
-        if (text.contains("\u5410\u9c81\u756a") || text.contains("turpan")) {
-            return DIRECTION_TURPAN;
-        }
         if (text.contains("\u54c8\u5bc6") || text.contains("hami")) {
             return DIRECTION_HAMI;
+        }
+        if (text.contains("\u5410\u9c81\u756a") || text.contains("turpan")) {
+            return DIRECTION_TURPAN;
         }
 
         try {

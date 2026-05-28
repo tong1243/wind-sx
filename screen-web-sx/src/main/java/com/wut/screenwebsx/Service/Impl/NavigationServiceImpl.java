@@ -70,7 +70,7 @@ public class NavigationServiceImpl implements NavigationService {
         response.setLine(carRealTime.getLaneNumber());
         response.setRoad(resolveRoadCode(carRealTime));
         response.setPile(carRealTime.getCurrentPile());
-        response.setDirection(resolveDirectionCode(carRealTime));
+        response.setDirection(carRealTime.getDirection());
         response.setVehicleType(getCarType(carRealTime.getCarLicense()));
 
         return ApiResponse.success("获取成功", response);
@@ -117,8 +117,8 @@ public class NavigationServiceImpl implements NavigationService {
             return null;
         }
         // 主线道路编号映射（按内部静态表）：
-        // direction=1(下行) -> road=2(左幅)
-        // direction=2(上行) -> road=1(右幅)
+        // direction=1(去往哈密/下行) -> road=2(左幅)
+        // direction=2(去往吐鲁番/上行) -> road=1(右幅)
         if (direction == 1) {
             return 2;
         }
@@ -167,11 +167,15 @@ public class NavigationServiceImpl implements NavigationService {
         if (carRealTime == null) {
             return null;
         }
+        Integer normalizedFromText = toDirectionCode(carRealTime.getDrivingDirection());
+        if (normalizedFromText != null) {
+            return normalizedFromText;
+        }
         Integer code = carRealTime.getDirection();
         if (code != null && (code == 1 || code == 2)) {
             return code;
         }
-        return toDirectionCode(carRealTime.getDrivingDirection());
+        return null;
     }
 
     private Integer toDirectionCode(String rawDirection) {
@@ -180,6 +184,17 @@ public class NavigationServiceImpl implements NavigationService {
         }
         String s = rawDirection.trim().toLowerCase(Locale.ROOT);
         if ("1".equals(s)
+                || "哈密".equals(s)
+                || "下行".equals(s)
+                || "hami".equals(s)
+                || "towh".equals(s)
+                || "to_wh".equals(s)
+                || "tuyugou_to_hamimi".equals(s)
+                || "turpan_to_hami".equals(s)
+                || "to_hami".equals(s)) {
+            return 1;
+        }
+        if ("2".equals(s)
                 || "吐鲁番".equals(s)
                 || "上行".equals(s)
                 || "turpan".equals(s)
@@ -189,17 +204,6 @@ public class NavigationServiceImpl implements NavigationService {
                 || "hamimi_to_tuyugou".equals(s)
                 || "hami_to_turpan".equals(s)
                 || "to_turpan".equals(s)) {
-            return 1;
-        }
-        if ("2".equals(s)
-                || "哈密".equals(s)
-                || "下行".equals(s)
-                || "hami".equals(s)
-                || "towh".equals(s)
-                || "to_wh".equals(s)
-                || "tuyugou_to_hamimi".equals(s)
-                || "turpan_to_hami".equals(s)
-                || "to_hami".equals(s)) {
             return 2;
         }
         return null;

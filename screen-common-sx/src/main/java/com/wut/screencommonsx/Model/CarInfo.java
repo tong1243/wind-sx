@@ -1,6 +1,7 @@
 package com.wut.screencommonsx.Model;
 
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
@@ -24,6 +25,8 @@ public class CarInfo {
     private String licensePhoto;     // 行驶证照片URL
     private String auditStatus;         // 审核状态：unaudited/passed/rejected
     private String rejectReason;        // 驳回原因
+    @TableField("submitter_phone")
+    private String submitterPhone;      // 提交登记的用户手机号（审核通过前用于归属）
     private Integer currentPoints;      // 当前积分（0-12）
     private Integer pointsIncreaseRemainTime; // 积分上涨剩余时间（秒）
     private LocalDateTime createTime;

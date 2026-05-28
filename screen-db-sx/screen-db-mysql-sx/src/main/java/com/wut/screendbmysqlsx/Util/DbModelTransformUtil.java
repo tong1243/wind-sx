@@ -30,7 +30,7 @@ public class DbModelTransformUtil {
                 traj.getLatitude(),
                 traj.getHeadingAngle(),
                 DataParamParseUtil.getPositionStr(traj.getFrenetX()),
-                DataParamParseUtil.getRoundValue(traj.getSpeedX()),
+                DataParamParseUtil.getRoundValue(traj.getSpeedX() == null ? 0D : Math.abs(traj.getSpeedX())),
                 traj.getHeight()
         );
     }
@@ -41,7 +41,7 @@ public class DbModelTransformUtil {
                 traj.getCarId(),
                 traj.getCarType(),
                 traj.getRoadDirect(),
-                DataParamParseUtil.getRoundValue(traj.getSpeedX() * 3.6),
+                DataParamParseUtil.getRoundValue(traj.getSpeedX() == null ? 0D : Math.abs(traj.getSpeedX())),
                 DataParamParseUtil.getPositionStr(traj.getFrenetX()),
                 traj.getTimestamp(),
                 state,
@@ -348,3 +348,4 @@ public class DbModelTransformUtil {
         return responseTunnelRisk;
     }
 }
+

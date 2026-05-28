@@ -39,6 +39,13 @@ public class GlobalExceptionHandler {
         return ApiResponse.notFound("资源不存在");
     }
 
+    // 处理非法参数或状态异常（统一按400返回，便于前端定位业务约束）
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ApiResponse<?> handleIllegalArgumentException(IllegalArgumentException e) {
+        log.error("非法参数异常：{}", e.getMessage(), e);
+        return ApiResponse.badRequest(e.getMessage());
+    }
+
     // 处理通用异常
     @ExceptionHandler(Exception.class)
     public ApiResponse<?> handleException(Exception e) {

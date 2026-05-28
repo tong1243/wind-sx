@@ -7,6 +7,7 @@ public class DbModuleStatic {
             "carevent",
             "section",
             "traj_near_real",
+            "wind_data",
             "posture",
             "fibermetric",
             "radarmetric",

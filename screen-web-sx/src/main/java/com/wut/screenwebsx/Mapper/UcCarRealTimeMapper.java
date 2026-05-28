@@ -13,7 +13,10 @@ import org.apache.ibatis.annotations.Select;
 @Mapper
 public interface UcCarRealTimeMapper extends BaseMapper<UcCarRealTime> {
     // 查询用户最新的车辆实时数据
-    @Select("SELECT * FROM uc_car_real_time WHERE user_phone = #{phone} ORDER BY report_time DESC LIMIT 1")
+    @Select("SELECT id, user_phone AS userPhone, car_license AS carLicense, current_pile AS currentPile, " +
+            "real_speed AS realSpeed, direction, " +
+            "driving_direction AS drivingDirection, lane_number AS laneNumber, road, report_time AS reportTime " +
+            "FROM uc_car_real_time WHERE user_phone = #{phone} ORDER BY report_time DESC, id DESC LIMIT 1")
     UcCarRealTime selectLatestByPhone(@Param("phone") String phone);
 
     @Delete("DELETE FROM uc_car_real_time " +
@@ -42,7 +45,13 @@ public interface UcCarRealTimeMapper extends BaseMapper<UcCarRealTime> {
             "  AND car_license LIKE CONCAT('%', #{licensePlate}, '%')",
             "</if>",
             "<if test='directionCode != null'>",
-            "  AND direction = #{directionCode}",
+            "  AND (",
+            "    CASE ",
+            "      WHEN LOWER(TRIM(COALESCE(driving_direction, ''))) IN ('哈密', '下行', 'hami', 'towh', 'to_wh', 'tuyugou_to_hamimi', 'turpan_to_hami', 'to_hami') THEN 1",
+            "      WHEN LOWER(TRIM(COALESCE(driving_direction, ''))) IN ('吐鲁番', '上行', 'turpan', 'tulufan', 'toez', 'to_ez', 'hamimi_to_tuyugou', 'hami_to_turpan', 'to_turpan') THEN 2",
+            "      ELSE direction",
+            "    END",
+            "  ) = #{directionCode}",
             "</if>",
             "<if test='directionCode == null and directionText != null and directionText != \"\"'>",
             "  AND driving_direction = #{directionText}",
@@ -62,7 +71,11 @@ public interface UcCarRealTimeMapper extends BaseMapper<UcCarRealTime> {
             "  car_license AS carLicense,",
             "  current_pile AS currentPile,",
             "  real_speed AS realSpeed,",
-            "  direction,",
+            "  CASE ",
+            "    WHEN LOWER(TRIM(COALESCE(driving_direction, ''))) IN ('哈密', '下行', 'hami', 'towh', 'to_wh', 'tuyugou_to_hamimi', 'turpan_to_hami', 'to_hami') THEN 1",
+            "    WHEN LOWER(TRIM(COALESCE(driving_direction, ''))) IN ('吐鲁番', '上行', 'turpan', 'tulufan', 'toez', 'to_ez', 'hamimi_to_tuyugou', 'hami_to_turpan', 'to_turpan') THEN 2",
+            "    ELSE direction",
+            "  END AS direction,",
             "  driving_direction AS drivingDirection,",
             "  lane_number AS laneNumber,",
             "  road,",
@@ -76,7 +89,13 @@ public interface UcCarRealTimeMapper extends BaseMapper<UcCarRealTime> {
             "  AND car_license LIKE CONCAT('%', #{licensePlate}, '%')",
             "</if>",
             "<if test='directionCode != null'>",
-            "  AND direction = #{directionCode}",
+            "  AND (",
+            "    CASE ",
+            "      WHEN LOWER(TRIM(COALESCE(driving_direction, ''))) IN ('哈密', '下行', 'hami', 'towh', 'to_wh', 'tuyugou_to_hamimi', 'turpan_to_hami', 'to_hami') THEN 1",
+            "      WHEN LOWER(TRIM(COALESCE(driving_direction, ''))) IN ('吐鲁番', '上行', 'turpan', 'tulufan', 'toez', 'to_ez', 'hamimi_to_tuyugou', 'hami_to_turpan', 'to_turpan') THEN 2",
+            "      ELSE direction",
+            "    END",
+            "  ) = #{directionCode}",
             "</if>",
             "<if test='directionCode == null and directionText != null and directionText != \"\"'>",
             "  AND driving_direction = #{directionText}",
@@ -93,7 +112,8 @@ public interface UcCarRealTimeMapper extends BaseMapper<UcCarRealTime> {
                                                                  @Param("directionText") String directionText);
 
     @Select("SELECT id, user_phone AS userPhone, car_license AS carLicense, current_pile AS currentPile, " +
-            "real_speed AS realSpeed, direction, driving_direction AS drivingDirection, lane_number AS laneNumber, " +
+            "real_speed AS realSpeed, direction, " +
+            "driving_direction AS drivingDirection, lane_number AS laneNumber, " +
             "road, report_time AS reportTime " +
             "FROM uc_car_real_time_current WHERE user_phone = #{phone} ORDER BY report_time DESC, id DESC LIMIT 1")
     UcCarRealTime selectLatestByPhoneFromCurrent(@Param("phone") String phone);

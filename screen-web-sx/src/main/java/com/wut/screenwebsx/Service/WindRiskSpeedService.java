@@ -33,8 +33,8 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class WindRiskSpeedService {
-    private static final int DIRECTION_TURPAN = 1;
-    private static final int DIRECTION_HAMI = 2;
+    private static final int DIRECTION_HAMI = 1;
+    private static final int DIRECTION_TURPAN = 2;
 
     private static final BigDecimal RISK_THRESHOLD = new BigDecimal("13.9");
     private static final BigDecimal L4_THRESHOLD = new BigDecimal("17.2");
@@ -62,6 +62,7 @@ public class WindRiskSpeedService {
     private final WindDataService windDataService;
     private final WindRiskSectionHourlyMapper windRiskSectionHourlyMapper;
     private final WindSpeedLimitHourlyMapper windSpeedLimitHourlyMapper;
+    private final WindControlStateService stateService;
 
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> calculateAndPersist(long startTimestamp,
@@ -105,6 +106,36 @@ public class WindRiskSpeedService {
         result.put("hourDirectionCount", hourSet.size() * 2);
         result.put("riskRowCount", riskRows.size());
         result.put("speedRowCount", speedRows.size());
+        return result;
+    }
+
+    /**
+     * 限速阈值更新后，重算并覆盖 APP 侧小时级限速数据。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> syncSpeedLimitAfterThresholdUpdate(String outputDataSource) {
+        String finalOutputSource = hasText(outputDataSource) ? outputDataSource.trim() : DEFAULT_OUTPUT_SOURCE;
+        LocalDateTime firstSourceHour = truncateToHour(windDataService.findFirstTimestamp(null));
+        LocalDateTime lastSourceHour = truncateToHour(windDataService.findLastTimestamp(null));
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("outputDataSource", finalOutputSource);
+        result.put("synced", false);
+        if (firstSourceHour == null || lastSourceHour == null || lastSourceHour.isBefore(firstSourceHour)) {
+            result.put("message", "no wind source rows, skip sync");
+            return result;
+        }
+
+        Map<String, Object> calculateResult = calculateAndPersist(
+                toEpochMilli(firstSourceHour),
+                toEpochMilli(lastSourceHour),
+                null,
+                finalOutputSource
+        );
+        result.put("synced", true);
+        result.put("startTime", firstSourceHour);
+        result.put("endTime", lastSourceHour);
+        result.put("calculateResult", calculateResult);
         return result;
     }
 
@@ -306,7 +337,7 @@ public class WindRiskSpeedService {
             row.setSectionEndKm(toDecimal(def.endKm(), 3));
             row.setMaxWindSpeed(toDecimal(maxWind, 1));
             row.setControlLevel(levelLimit.level());
-            row.setLevelDesc("LEVEL " + levelLimit.level());
+            row.setLevelDesc(levelLimit.levelDesc());
             row.setCarSpeedLimit(levelLimit.carSpeed());
             row.setTruckSpeedLimit(levelLimit.truckSpeed());
             row.setNote(levelLimit.level() == 1 ? "For stranded vehicles" : "");
@@ -342,20 +373,65 @@ public class WindRiskSpeedService {
     }
 
     private LevelLimit resolveLevelLimit(double maxWind) {
-        BigDecimal wind = BigDecimal.valueOf(maxWind);
-        if (wind.compareTo(RISK_THRESHOLD) < 0) {
-            return new LevelLimit(5, 120, 80);
+        Integer windLevel = toWindLevel(maxWind);
+        if (windLevel == null) {
+            return new LevelLimit(5, 120, 80, "7级及以下");
         }
-        if (wind.compareTo(L4_THRESHOLD) < 0) {
-            return new LevelLimit(4, 80, 60);
+
+        Map<String, Object> threshold = stateService.getSpeedThresholdByWindLevel().get(windLevel);
+        int mappedControlLevel = stateService.mapWindToControlLevel(windLevel);
+        int controlLevel = threshold == null
+                ? mappedControlLevel
+                : stateService.intValue(threshold.get("controlLevel"), mappedControlLevel);
+        int carSpeed = threshold == null
+                ? defaultPassengerLimitByControlLevel(controlLevel)
+                : stateService.intValue(threshold.get("passengerSpeedLimit"), defaultPassengerLimitByControlLevel(controlLevel));
+        int truckSpeed = threshold == null
+                ? defaultFreightLimitByControlLevel(controlLevel)
+                : stateService.intValue(threshold.get("freightSpeedLimit"), defaultFreightLimitByControlLevel(controlLevel));
+        String levelDesc = threshold == null
+                ? ("风力" + windLevel + "级")
+                : stateService.stringValue(threshold.get("windLevelDesc"));
+        if (!hasText(levelDesc)) {
+            levelDesc = "风力" + windLevel + "级";
         }
-        if (wind.compareTo(L3_THRESHOLD) < 0) {
-            return new LevelLimit(3, 60, 40);
-        }
-        if (wind.compareTo(L2_THRESHOLD) < 0) {
-            return new LevelLimit(2, 20, 20);
-        }
-        return new LevelLimit(1, 20, 20);
+        return new LevelLimit(controlLevel, Math.max(carSpeed, 0), Math.max(truckSpeed, 0), levelDesc);
+    }
+
+    private Integer toWindLevel(double windSpeed) {
+        if (windSpeed >= 32.7D) return 12;
+        if (windSpeed >= 28.5D) return 11;
+        if (windSpeed >= 24.5D) return 10;
+        if (windSpeed >= 20.8D) return 9;
+        if (windSpeed >= 17.2D) return 8;
+        if (windSpeed >= 13.9D) return 7;
+        if (windSpeed >= 10.8D) return 6;
+        if (windSpeed >= 8.0D) return 5;
+        if (windSpeed >= 5.5D) return 4;
+        if (windSpeed >= 3.4D) return 3;
+        if (windSpeed >= 1.6D) return 2;
+        if (windSpeed >= 0.3D) return 1;
+        return 1;
+    }
+
+    private int defaultPassengerLimitByControlLevel(int controlLevel) {
+        return switch (controlLevel) {
+            case 1 -> 0;
+            case 2 -> 60;
+            case 3 -> 60;
+            case 4 -> 80;
+            default -> 120;
+        };
+    }
+
+    private int defaultFreightLimitByControlLevel(int controlLevel) {
+        return switch (controlLevel) {
+            case 1 -> 0;
+            case 2 -> 0;
+            case 3 -> 40;
+            case 4 -> 60;
+            default -> 80;
+        };
     }
 
     private Double parseStakeKm(String stake) {
@@ -386,7 +462,7 @@ public class WindRiskSpeedService {
         if (direction == DIRECTION_TURPAN || direction == DIRECTION_HAMI) {
             return direction;
         }
-        throw new IllegalArgumentException("direction must be 1(turpan) or 2(hami)");
+        throw new IllegalArgumentException("direction must be 1(hami) or 2(turpan)");
     }
 
     private LocalDateTime toLocalDateTime(long timestamp) {
@@ -395,6 +471,10 @@ public class WindRiskSpeedService {
 
     private LocalDateTime truncateToHour(LocalDateTime time) {
         return time.withMinute(0).withSecond(0).withNano(0);
+    }
+
+    private long toEpochMilli(LocalDateTime time) {
+        return time.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
     }
 
     private BigDecimal toDecimal(double value, int scale) {
@@ -438,6 +518,6 @@ public class WindRiskSpeedService {
     private record Range(double start, double end) {
     }
 
-    private record LevelLimit(int level, int carSpeed, int truckSpeed) {
+    private record LevelLimit(int level, int carSpeed, int truckSpeed, String levelDesc) {
     }
 }

@@ -3,6 +3,7 @@ package com.wut.screenwebsx.Service;
 import com.wut.screencommonsx.Model.TargetTimeModel;
 import com.wut.screencommonsx.Request.TargetDataReq;
 import com.wut.screencommonsx.Response.Posture.*;
+import com.wut.screencommonsx.Response.Traj.TrajInfoData;
 import com.wut.screencommonsx.Response.TimeRecordData;
 import com.wut.screencommonsx.Util.CollectionEmptyUtil;
 import com.wut.screencommonsx.Util.DataParamParseUtil;
@@ -11,12 +12,11 @@ import com.wut.screencommonsx.Util.ModelTransformUtil;
 import com.wut.screendbmysqlsx.Model.*;
 import com.wut.screendbmysqlsx.Service.*;
 import com.wut.screenwebsx.Config.DockingInterfaceConfig.Docking;
+import com.wut.screenwebsx.Context.TrajFrameDataContext;
 import com.wut.screenwebsx.Service.DataPreSubService.PostureDataPreService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -24,6 +24,8 @@ import static com.wut.screencommonsx.Static.WebModuleStatic.*;
 
 @Component
 public class PostureWebService {
+    private static final int DIRECTION_TO_WH = 1;
+    private static final int DIRECTION_TO_EZ = 2;
     private final PostureDataPreService postureDataPreService;
     private final TrajService trajService;
     private final BottleneckAreaStateService bottleneckAreaStateService;
@@ -51,15 +53,181 @@ public class PostureWebService {
 
     @Docking
     public PostureRealTimeDataResp collectPostureRealTimeData(long timestamp) {
-        String tableStr = DateParamParseUtil.getDateTableStr(timestamp);
-        List<Parameters> parametersList = parametersService.getListByDate(tableStr);
         PostureStatisticData statisticData = ModelTransformUtil.getPostureStatisticInstance();
         List<PostureFlowTypeData> flowTypeList = postureDataPreService.initFlowTypeDataList();
-        if (parametersList != null) {
-            recordParametersToStatisticData(statisticData, parametersList);
+        recordInTransitTrajectoryToStatisticData(timestamp, statisticData);
 //            recordPostureToFlowType(flowTypeList, DataParamParseUtil.parsePostureComp(posture.getComp()));
-        }
         return new PostureRealTimeDataResp(statisticData, flowTypeList);
+    }
+
+    private void recordInTransitTrajectoryToStatisticData(long timestamp, PostureStatisticData statisticData) {
+        Map<Integer, Set<Long>> activeTrajByDirection = buildActiveTrajByDirection(timestamp);
+        Set<Long> allActiveTrajIdSet = new HashSet<>();
+        allActiveTrajIdSet.addAll(activeTrajByDirection.getOrDefault(DIRECTION_TO_WH, Collections.emptySet()));
+        allActiveTrajIdSet.addAll(activeTrajByDirection.getOrDefault(DIRECTION_TO_EZ, Collections.emptySet()));
+
+        Map<Long, Double> latestSpeedByTrajId = loadLatestSpeedByTrajId(allActiveTrajIdSet, timestamp);
+        mergeSpeedFromLiveFrame(latestSpeedByTrajId, TrajFrameDataContext.getTRAJ_MAP_TO_WH());
+        mergeSpeedFromLiveFrame(latestSpeedByTrajId, TrajFrameDataContext.getTRAJ_MAP_TO_EZ());
+
+        double flowToWH = activeTrajByDirection.getOrDefault(DIRECTION_TO_WH, Collections.emptySet()).size();
+        double flowToEZ = activeTrajByDirection.getOrDefault(DIRECTION_TO_EZ, Collections.emptySet()).size();
+        Double speedToWH = calculateDirectionAverageSpeed(activeTrajByDirection.get(DIRECTION_TO_WH), latestSpeedByTrajId);
+        Double speedToEZ = calculateDirectionAverageSpeed(activeTrajByDirection.get(DIRECTION_TO_EZ), latestSpeedByTrajId);
+
+        statisticData.setFlowToEZ(DataParamParseUtil.getRoundValue(flowToEZ));
+        statisticData.setFlowToWH(DataParamParseUtil.getRoundValue(flowToWH));
+        statisticData.setSpeedToEZ(speedToEZ == null ? 0D : DataParamParseUtil.getRoundValue(speedToEZ));
+        statisticData.setSpeedToWH(speedToWH == null ? 0D : DataParamParseUtil.getRoundValue(speedToWH));
+        statisticData.setCongestionToEZ(null);
+        statisticData.setCongestionToWH(null);
+    }
+
+    private Map<Integer, Set<Long>> buildActiveTrajByDirection(long timestamp) {
+        Map<Integer, Set<Long>> activeTrajByDirection = new HashMap<>();
+        activeTrajByDirection.put(DIRECTION_TO_WH, new HashSet<>());
+        activeTrajByDirection.put(DIRECTION_TO_EZ, new HashSet<>());
+
+        long lowerBound = Math.max(0L, timestamp - TRAJ_EXPIRE_TIMEOUT);
+        Map<Long, com.wut.screenwebsx.Model.TrajStateModel> stateMap = TrajFrameDataContext.getTRAJ_STATE_MAP();
+        for (Map.Entry<Long, com.wut.screenwebsx.Model.TrajStateModel> entry : stateMap.entrySet()) {
+            Long trajId = entry.getKey();
+            com.wut.screenwebsx.Model.TrajStateModel stateModel = entry.getValue();
+            if (trajId == null || stateModel == null || stateModel.getTimestamp() < lowerBound) {
+                continue;
+            }
+            int direction = stateModel.getDirection();
+            if (direction == DIRECTION_TO_WH || direction == DIRECTION_TO_EZ) {
+                activeTrajByDirection.get(direction).add(trajId);
+            }
+        }
+
+        // 部分场景下状态表与实时帧存在短暂不同步，补充当前帧可见轨迹避免漏计。
+        activeTrajByDirection.get(DIRECTION_TO_WH).addAll(TrajFrameDataContext.getTRAJ_MAP_TO_WH().keySet());
+        activeTrajByDirection.get(DIRECTION_TO_EZ).addAll(TrajFrameDataContext.getTRAJ_MAP_TO_EZ().keySet());
+        return activeTrajByDirection;
+    }
+
+    private Map<Long, Double> loadLatestSpeedByTrajId(Set<Long> activeTrajIdSet, long timestamp) {
+        Map<Long, Double> latestSpeedByTrajId = new HashMap<>();
+        if (activeTrajIdSet == null || activeTrajIdSet.isEmpty()) {
+            return latestSpeedByTrajId;
+        }
+
+        long startTimestamp = Math.max(0L, timestamp - TRAJ_EXPIRE_TIMEOUT);
+        List<String> suffixList = new ArrayList<>();
+        suffixList.add(DateParamParseUtil.getDateTableStr(timestamp));
+        String startSuffix = DateParamParseUtil.getDateTableStr(startTimestamp);
+        if (!suffixList.contains(startSuffix)) {
+            suffixList.add(startSuffix);
+        }
+
+        for (String suffix : suffixList) {
+            List<Traj> rows;
+            try {
+                rows = trajService.getListByTimestampRange(suffix, startTimestamp, timestamp);
+            } catch (Exception ignored) {
+                continue;
+            }
+            if (CollectionEmptyUtil.forList(rows)) {
+                continue;
+            }
+
+            Map<Long, Traj> latestPointByTrajId = new HashMap<>();
+            for (Traj row : rows) {
+                Long trajId = row.getTrajId();
+                if (trajId == null || !activeTrajIdSet.contains(trajId)) {
+                    continue;
+                }
+                Traj latest = latestPointByTrajId.get(trajId);
+                if (latest == null || toLong(row.getTimestamp()) >= toLong(latest.getTimestamp())) {
+                    latestPointByTrajId.put(trajId, row);
+                }
+            }
+
+            for (Map.Entry<Long, Traj> entry : latestPointByTrajId.entrySet()) {
+                Double speed = calcSpeedKmh(entry.getValue());
+                if (speed != null) {
+                    latestSpeedByTrajId.put(entry.getKey(), speed);
+                }
+            }
+        }
+
+        return latestSpeedByTrajId;
+    }
+
+    private void mergeSpeedFromLiveFrame(Map<Long, Double> latestSpeedByTrajId, Map<Long, TrajInfoData> liveFrameTrajMap) {
+        if (liveFrameTrajMap == null || liveFrameTrajMap.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<Long, TrajInfoData> entry : liveFrameTrajMap.entrySet()) {
+            Long trajId = entry.getKey();
+            TrajInfoData data = entry.getValue();
+            if (trajId == null || data == null) {
+                continue;
+            }
+            double speed = data.getSpeed();
+            if (Double.isFinite(speed) && speed >= 0D && speed <= 220D) {
+                latestSpeedByTrajId.put(trajId, speed);
+            }
+        }
+    }
+
+    private Double calculateDirectionAverageSpeed(Set<Long> trajIdSet, Map<Long, Double> latestSpeedByTrajId) {
+        if (trajIdSet == null || trajIdSet.isEmpty() || latestSpeedByTrajId == null || latestSpeedByTrajId.isEmpty()) {
+            return null;
+        }
+        double sum = 0D;
+        int count = 0;
+        for (Long trajId : trajIdSet) {
+            Double speed = latestSpeedByTrajId.get(trajId);
+            if (speed == null || speed < 0D || speed > 220D) {
+                continue;
+            }
+            sum += speed;
+            count++;
+        }
+        if (count == 0) {
+            return null;
+        }
+        return sum / count;
+    }
+
+    private Double calcSpeedKmh(Traj traj) {
+        if (traj == null) {
+            return null;
+        }
+        Double speedX = traj.getSpeedX();
+        Double speedY = traj.getSpeedY();
+        if (speedX == null && speedY == null) {
+            return null;
+        }
+        double vx = speedX == null ? 0D : speedX;
+        double vy = speedY == null ? 0D : speedY;
+        double vectorSpeed = Math.sqrt(vx * vx + vy * vy);
+        double longitudinalSpeed = Math.abs(vx);
+        double speed = vectorSpeed;
+        if (vectorSpeed > 220D && longitudinalSpeed <= 220D) {
+            speed = longitudinalSpeed;
+        }
+        if (!Double.isFinite(speed) || speed < 0D || speed > 220D) {
+            return null;
+        }
+        return speed;
+    }
+
+    private long toLong(Object raw) {
+        if (raw == null) {
+            return 0L;
+        }
+        if (raw instanceof Number) {
+            return ((Number) raw).longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(raw));
+        } catch (Exception ignored) {
+            return 0L;
+        }
     }
 
     @Docking
@@ -91,10 +259,30 @@ public class PostureWebService {
     }
 
     public void recordParametersToStatisticData(PostureStatisticData statisticData, List<Parameters> parametersList) {
-        statisticData.setFlowToEZ(0.0);
-        statisticData.setFlowToWH(DataParamParseUtil.getRoundValue(getAvgStream(parametersList)));
-        statisticData.setSpeedToEZ(0.0);
-        statisticData.setSpeedToWH(DataParamParseUtil.getRoundValue(getAvgSpeed(parametersList)));
+        if (CollectionEmptyUtil.forList(parametersList)) {
+            statisticData.setFlowToEZ(null);
+            statisticData.setFlowToWH(null);
+            statisticData.setSpeedToEZ(null);
+            statisticData.setSpeedToWH(null);
+            statisticData.setCongestionToEZ(null);
+            statisticData.setCongestionToWH(null);
+            return;
+        }
+        double avgStream = getAvgStream(parametersList);
+        double avgSpeed = getAvgSpeed(parametersList);
+        double avgUpSpeed = parametersList.stream().mapToDouble(Parameters::getUpSpeed).average().orElse(0D);
+        double avgDownSpeed = parametersList.stream().mapToDouble(Parameters::getDownSpeed).average().orElse(0D);
+
+        // 历史数据存在只填 speed 的场景，up/down 方向速度为空（0）时回退到总平均速度，避免方向值被固定为 0。
+        double speedToWh = avgUpSpeed > 0D ? avgUpSpeed : avgSpeed;
+        double speedToEz = avgDownSpeed > 0D ? avgDownSpeed : avgSpeed;
+
+        statisticData.setFlowToEZ(DataParamParseUtil.getRoundValue(avgStream));
+        statisticData.setFlowToWH(DataParamParseUtil.getRoundValue(avgStream));
+        statisticData.setSpeedToEZ(DataParamParseUtil.getRoundValue(speedToEz));
+        statisticData.setSpeedToWH(DataParamParseUtil.getRoundValue(speedToWh));
+        statisticData.setCongestionToEZ(null);
+        statisticData.setCongestionToWH(null);
 //        statisticData.setCongestionToEZ(DataParamParseUtil.getRoundValue(posture.getAvgKez()));
 //        statisticData.setCongestionToWH(DataParamParseUtil.getRoundValue(posture.getAvgKwh()));
     }

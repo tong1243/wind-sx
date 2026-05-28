@@ -17,4 +17,8 @@ public class TrajCarStatisticData {
     private int carToWH;             // 鄂州至武汉方向在途车辆数
     @JsonProperty("carToEZ")
     private int carToEZ;             // 武汉至鄂州方向在途车辆数
+    @JsonProperty("avgSpeedToWH")
+    private Double avgSpeedToWH;     // 鄂州至武汉方向在途平均速度(km/h)
+    @JsonProperty("avgSpeedToEZ")
+    private Double avgSpeedToEZ;     // 武汉至鄂州方向在途平均速度(km/h)
 }

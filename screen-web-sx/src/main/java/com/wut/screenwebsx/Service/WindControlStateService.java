@@ -54,11 +54,11 @@ import static com.wut.screenwebsx.Service.WindControlPersistenceService.CAT_WIND
  */
 @Service
 public class WindControlStateService {
-    /** 下行方向（哈密）。 */
-    private static final int DIRECTION_HAMI = 2;
+    /** 去往哈密方向（下行）。 */
+    private static final int DIRECTION_HAMI = 1;
 
-    /** 上行方向（吐鲁番）。 */
-    private static final int DIRECTION_TURPAN = 1;
+    /** 去往吐鲁番方向（上行）。 */
+    private static final int DIRECTION_TURPAN = 2;
 
     /** 最小风级。 */
     private static final int WIND_LEVEL_MIN = 1;
@@ -71,6 +71,8 @@ public class WindControlStateService {
 
     /** 解析等级数字的正则。 */
     private static final Pattern CONTROL_LEVEL_DIGIT_PATTERN = Pattern.compile("(\\d+)");
+    /** 解析桩号的正则。 */
+    private static final Pattern STAKE_PATTERN = Pattern.compile("K(\\d+(?:\\+\\d+)?)", Pattern.CASE_INSENSITIVE);
 
     /** 全线风区路段状态。 */
     private final List<Map<String, Object>> fullLineWindSections = new CopyOnWriteArrayList<>();
@@ -368,6 +370,65 @@ public class WindControlStateService {
     }
 
     /**
+     * 风速（m/s）转换为风级（近似蒲福等级）。
+     */
+    public int mapWindSpeedToWindLevel(double windSpeedMs) {
+        if (windSpeedMs >= 32.7) {
+            return 12;
+        }
+        if (windSpeedMs >= 28.5) {
+            return 11;
+        }
+        if (windSpeedMs >= 24.5) {
+            return 10;
+        }
+        if (windSpeedMs >= 20.8) {
+            return 9;
+        }
+        if (windSpeedMs >= 17.2) {
+            return 8;
+        }
+        if (windSpeedMs >= 13.9) {
+            return 7;
+        }
+        if (windSpeedMs >= 10.8) {
+            return 6;
+        }
+        if (windSpeedMs >= 8.0) {
+            return 5;
+        }
+        if (windSpeedMs >= 5.5) {
+            return 4;
+        }
+        if (windSpeedMs >= 3.4) {
+            return 3;
+        }
+        if (windSpeedMs >= 1.6) {
+            return 2;
+        }
+        return 1;
+    }
+
+    /**
+     * 将桩号文本转换为可比较数值（支持 K3020 / K3020+300）。
+     */
+    public Double parseStakeValue(String stake) {
+        if (stake == null || stake.isBlank()) {
+            return null;
+        }
+        Matcher matcher = STAKE_PATTERN.matcher(stake.toUpperCase(Locale.ROOT));
+        if (!matcher.find()) {
+            return null;
+        }
+        String token = matcher.group(1);
+        if (token.contains("+")) {
+            String[] parts = token.split("\\+");
+            return Double.parseDouble(parts[0]) + Double.parseDouble(parts[1]) / 1000.0;
+        }
+        return Double.parseDouble(token);
+    }
+
+    /**
      * 按主键 upsert 列表中的记录。
      *
      * @param rows 列表
@@ -499,6 +560,13 @@ public class WindControlStateService {
 
         publishFacilities.clear();
         publishFacilities.addAll(persistenceService.listByCategory(CAT_PUBLISH_FACILITY));
+        for (Map<String, Object> facility : publishFacilities) {
+            facility.putIfAbsent("postInformation", "");
+            facility.putIfAbsent("interchangeName", "");
+            facility.putIfAbsent("interchangeStake", "");
+            facility.putIfAbsent("redAlertMessage", "");
+            facility.putIfAbsent("colorAlertMessage", "");
+        }
         closureDevices.clear();
         closureDevices.addAll(persistenceService.listByCategory(CAT_CLOSURE_DEVICE));
         staffList.clear();
@@ -526,6 +594,12 @@ public class WindControlStateService {
         for (Map<String, Object> row : persistenceService.listByCategory(CAT_DISPATCH_PLAN)) {
             String segment = stringValue(row.get("segment"));
             if (!segment.isBlank()) {
+                row.putIfAbsent("intervalName", segment);
+                row.putIfAbsent("upstreamIntervalName", "");
+                row.putIfAbsent("hasInterchange", false);
+                row.putIfAbsent("nearestInterchangeStake", "");
+                row.putIfAbsent("startStakeValue", parseStakeValue(stringValue(row.get("startStake"))));
+                row.putIfAbsent("endStakeValue", parseStakeValue(stringValue(row.get("endStake"))));
                 dispatchPlanLibrary.put(segment, new LinkedHashMap<>(row));
             }
         }
@@ -602,6 +676,11 @@ public class WindControlStateService {
                     segmentId,
                     segmentName,
                     direction,
+                    stringValue(segment.getStartStake()),
+                    stringValue(segment.getEndStake()),
+                    stringValue(segment.getSegmentType()),
+                    stringValue(segment.getAppSpeedInterval()),
+                    stringValue(segment.getControlInterval()),
                     colorByWindLevel(DEFAULT_WIND_LEVEL),
                     DEFAULT_WIND_LEVEL,
                     DEFAULT_WIND_LEVEL,
@@ -665,7 +744,12 @@ public class WindControlStateService {
                     "pileNo", stringValue(facility.getPileNo()),
                     "direction", normalizeDirectionValue(facility.getDirection(), DIRECTION_HAMI),
                     "type", stringValue(facility.getFacilityType()),
-                    "segment", stringValue(facility.getSegment())
+                    "segment", stringValue(facility.getSegment()),
+                    "interchangeName", stringValue(facility.getInterchangeName()),
+                    "interchangeStake", stringValue(facility.getInterchangeStake()),
+                    "redAlertMessage", stringValue(facility.getRedAlertMessage()),
+                    "colorAlertMessage", stringValue(facility.getColorAlertMessage()),
+                    "postInformation", ""
             ));
         }
 
@@ -804,10 +888,16 @@ public class WindControlStateService {
             }
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("segment", segment);
+            row.put("intervalName", segment);
             row.put("controlPoint", startStake);
             row.put("startStake", startStake);
             row.put("endStake", endStake);
             row.put("direction", direction);
+            row.put("upstreamIntervalName", stringValue(interval.getUpstreamIntervalName()));
+            row.put("hasInterchange", intValue(interval.getHasInterchange(), 0) == 1);
+            row.put("nearestInterchangeStake", stringValue(interval.getNearestInterchangeStake()));
+            row.put("startStakeValue", parseStakeValue(startStake));
+            row.put("endStakeValue", parseStakeValue(endStake));
             row.put("contactStaff", "");
             row.put("teamId", "");
             row.put("warehouse", "");
@@ -834,11 +924,27 @@ public class WindControlStateService {
     /**
      * 创建风区路段标准行。
      */
-    private Map<String, Object> newWindSection(String segmentId, String segmentName, int direction, String color, int real, int forecast, int max72h) {
+    private Map<String, Object> newWindSection(String segmentId,
+                                               String segmentName,
+                                               int direction,
+                                               String startStake,
+                                               String endStake,
+                                               String segmentType,
+                                               String appSpeedInterval,
+                                               String controlInterval,
+                                               String color,
+                                               int real,
+                                               int forecast,
+                                               int max72h) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("segmentId", segmentId);
         row.put("segmentName", segmentName);
         row.put("direction", direction);
+        row.put("startStake", startStake);
+        row.put("endStake", endStake);
+        row.put("segmentType", segmentType);
+        row.put("appSpeedInterval", appSpeedInterval);
+        row.put("controlInterval", controlInterval);
         row.put("color", color);
         row.put("realWindLevel", real);
         row.put("forecastWindLevel", forecast);
@@ -912,16 +1018,6 @@ public class WindControlStateService {
         }
         String s = text.trim().toLowerCase(Locale.ROOT);
         if ("1".equals(s)
-                || "上行".equals(s)
-                || "吐鲁番".equals(s)
-                || "turpan".equals(s)
-                || "toez".equals(s)
-                || "to_ez".equals(s)
-                || "右幅".equals(s)
-                || "right".equals(s)) {
-            return DIRECTION_TURPAN;
-        }
-        if ("2".equals(s)
                 || "下行".equals(s)
                 || "哈密".equals(s)
                 || "hami".equals(s)
@@ -931,17 +1027,42 @@ public class WindControlStateService {
                 || "left".equals(s)) {
             return DIRECTION_HAMI;
         }
+        if ("2".equals(s)
+                || "上行".equals(s)
+                || "吐鲁番".equals(s)
+                || "turpan".equals(s)
+                || "toez".equals(s)
+                || "to_ez".equals(s)
+                || "右幅".equals(s)
+                || "right".equals(s)) {
+            return DIRECTION_TURPAN;
+        }
         return defaultDirection;
     }
 
     /**
-     * 解析“一级/二级/三级/四级/五级/数字”到等级数值。
+     * 解析“一级/二级/三级/四级/五级/红橙黄蓝绿警戒/数字”到等级数值。
      */
     private int parseControlLevelName(String controlLevelName, int defaultValue) {
         if (controlLevelName == null || controlLevelName.isBlank()) {
             return defaultValue;
         }
         String text = controlLevelName.trim();
+        if (text.contains("红色警戒")) {
+            return 1;
+        }
+        if (text.contains("橙色警戒")) {
+            return 2;
+        }
+        if (text.contains("黄色警戒")) {
+            return 3;
+        }
+        if (text.contains("蓝色警戒")) {
+            return 4;
+        }
+        if (text.contains("绿色警戒")) {
+            return 5;
+        }
         if (text.contains("一级")) {
             return 1;
         }
@@ -1064,11 +1185,11 @@ public class WindControlStateService {
      */
     private String levelName(int level) {
         return switch (level) {
-            case 1 -> "一级";
-            case 2 -> "二级";
-            case 3 -> "三级";
-            case 4 -> "四级";
-            case 5 -> "五级";
+            case 1 -> "红色警戒";
+            case 2 -> "橙色警戒";
+            case 3 -> "黄色警戒";
+            case 4 -> "蓝色警戒";
+            case 5 -> "绿色警戒";
             default -> "未知";
         };
     }

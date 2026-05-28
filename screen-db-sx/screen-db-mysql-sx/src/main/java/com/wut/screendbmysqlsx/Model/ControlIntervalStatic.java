@@ -57,6 +57,24 @@ public class ControlIntervalStatic {
     private String direction;
 
     /**
+     * 上游区间名称。
+     */
+    @TableField("upstream_interval_name")
+    private String upstreamIntervalName;
+
+    /**
+     * 本区间是否存在互通（1 是，0 否）。
+     */
+    @TableField("has_interchange")
+    private Integer hasInterchange;
+
+    /**
+     * 沿道路方向最近互通节点桩号。
+     */
+    @TableField("nearest_interchange_stake")
+    private String nearestInterchangeStake;
+
+    /**
      * 排序号。
      */
     @TableField("sort_no")

@@ -55,7 +55,7 @@ public class OperationMaintenanceController {
      *
      * @param pageNo 分页页码
      * @param pageSize 分页大小
-     * @param licensePlate 车牌号筛选
+     * @param licensePlate 车牌号模糊筛选
      * @param startTime 开始时间
      * @param endTime 结束时间
      * @param deductedOnly 是否仅扣分车辆

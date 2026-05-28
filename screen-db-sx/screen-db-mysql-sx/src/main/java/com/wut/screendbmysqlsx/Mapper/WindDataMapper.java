@@ -6,6 +6,7 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -52,6 +53,35 @@ public interface WindDataMapper extends BaseMapper<WindData> {
                 update_time = VALUES(update_time)
             """)
     int upsert(@Param("row") WindData row);
+
+    @Select("""
+            SELECT id
+            FROM wind_data
+            WHERE time_stamp = #{timeStamp}
+              AND direction = #{direction}
+              AND start_stake = #{startStake}
+              AND end_stake = #{endStake}
+            ORDER BY id ASC
+            LIMIT 1
+            """)
+    Long selectFirstIdByNaturalKey(@Param("timeStamp") LocalDateTime timeStamp,
+                                   @Param("direction") Integer direction,
+                                   @Param("startStake") String startStake,
+                                   @Param("endStake") String endStake);
+
+    @Update("""
+            UPDATE wind_data
+            SET section_name = #{row.sectionName},
+                wind_speed = #{row.windSpeed},
+                wind_direction = #{row.windDirection},
+                heavy_vehicle_speed_limit = #{row.heavyVehicleSpeedLimit},
+                light_vehicle_speed_limit = #{row.lightVehicleSpeedLimit},
+                control_level = #{row.controlLevel},
+                data_source = #{row.dataSource},
+                update_time = #{row.updateTime}
+            WHERE id = #{id}
+            """)
+    int updateDataById(@Param("id") Long id, @Param("row") WindData row);
 
     @Select("""
             SELECT w.*

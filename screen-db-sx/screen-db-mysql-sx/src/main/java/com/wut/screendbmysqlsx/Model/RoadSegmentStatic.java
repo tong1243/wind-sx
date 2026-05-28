@@ -37,6 +37,14 @@ public class RoadSegmentStatic {
     @TableField("segment_type")
     private String segmentType;
 
+    /** APP限速区间编码。 */
+    @TableField("app_speed_interval")
+    private String appSpeedInterval;
+
+    /** 管控区间编码。 */
+    @TableField("control_interval")
+    private String controlInterval;
+
     /** 排序号。 */
     @TableField("sort_no")
     private Integer sortNo;

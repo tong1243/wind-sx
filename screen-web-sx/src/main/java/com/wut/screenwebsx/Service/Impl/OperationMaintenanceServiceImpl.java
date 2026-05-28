@@ -6,12 +6,15 @@ import com.wut.screencommonsx.Exception.BusinessException;
 import com.wut.screencommonsx.Model.CarInfo;
 import com.wut.screencommonsx.Model.TravelReservation;
 import com.wut.screencommonsx.Model.UcCarRealTime;
+import com.wut.screencommonsx.Model.UserAccount;
 import com.wut.screencommonsx.Response.ApiResponse;
 import com.wut.screencommonsx.Response.Operation.OperationMaintenanceResp;
 import com.wut.screenwebsx.Mapper.CarInfoMapper;
 import com.wut.screenwebsx.Mapper.TravelReservationMapper;
 import com.wut.screenwebsx.Mapper.UcCarRealTimeMapper;
+import com.wut.screenwebsx.Mapper.UserAccountMapper;
 import com.wut.screenwebsx.Service.OperationMaintenanceService;
+import com.wut.screenwebsx.Service.UserNoticePublishService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,10 +40,13 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
     private final UcCarRealTimeMapper ucCarRealTimeMapper;
     private final TravelReservationMapper travelReservationMapper;
     private final CarInfoMapper carInfoMapper;
+    private final UserAccountMapper userAccountMapper;
+    private final UserNoticePublishService userNoticePublishService;
 
     private static final int RESERVATION_PENDING = 2;
     private static final int RESERVATION_APPROVED = 1;
     private static final int RESERVATION_REJECTED = 0;
+    private static final Set<String> VEHICLE_AUDIT_STATUS_SET = Set.of("unaudited", "passed", "rejected");
     private static final Map<String, String> REJECT_ITEM_OPTIONS = buildRejectItemOptions();
     private static final Map<String, String> LEGACY_REJECT_ITEM_OPTIONS = buildLegacyRejectItemOptions();
 
@@ -85,9 +91,10 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
 
     @Override
     public ApiResponse<?> getReservationTable(long pageNo, long pageSize, String licensePlate, String startTime, String endTime, Boolean deductedOnly) {
+        String licensePlateFilter = trimToNull(licensePlate);
         LambdaQueryWrapper<TravelReservation> wrapper = new LambdaQueryWrapper<TravelReservation>()
                 .orderByDesc(TravelReservation::getCreateTime)
-                .eq(hasText(licensePlate), TravelReservation::getCarLicense, licensePlate);
+                .like(hasText(licensePlateFilter), TravelReservation::getCarLicense, licensePlateFilter);
 
         LocalDateTime start = parseDateTime(startTime, "startTime");
         LocalDateTime end = parseDateTime(endTime, "endTime");
@@ -148,6 +155,13 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         reservation.setRejectReason(null);
         reservation.setUpdateTime(LocalDateTime.now());
         travelReservationMapper.updateById(reservation);
+        userNoticePublishService.publishReservationAuditPassed(
+                reservation.getUserPhone(),
+                reservation.getCarLicense(),
+                reservation.getTravelTimeSlot(),
+                reservation.getStartPoint(),
+                reservation.getEndPoint()
+        );
         return ApiResponse.success("reservation audit approved", null);
     }
 
@@ -155,19 +169,30 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
     @Transactional(rollbackFor = Exception.class)
     public ApiResponse<?> rejectReservation(Long reservationId, String rejectReason) {
         TravelReservation reservation = getReservationByIdOrThrow(reservationId);
+        String normalizedRejectReason = normalizeRejectReason(rejectReason);
         reservation.setIsPassed(RESERVATION_REJECTED);
-        reservation.setRejectReason(normalizeRejectReason(rejectReason));
+        reservation.setRejectReason(normalizedRejectReason);
         reservation.setUpdateTime(LocalDateTime.now());
         travelReservationMapper.updateById(reservation);
+        userNoticePublishService.publishReservationAuditRejected(
+                reservation.getUserPhone(),
+                reservation.getCarLicense(),
+                reservation.getTravelTimeSlot(),
+                reservation.getStartPoint(),
+                reservation.getEndPoint(),
+                normalizedRejectReason
+        );
         return ApiResponse.success("reservation audit rejected", null);
     }
 
     @Override
     public ApiResponse<?> getVehicleAuditTable(long pageNo, long pageSize, String keyword, String auditStatus) {
+        String keywordFilter = trimToNull(keyword);
+        String auditStatusFilter = normalizeVehicleAuditStatus(auditStatus);
         LambdaQueryWrapper<CarInfo> wrapper = new LambdaQueryWrapper<CarInfo>()
                 .orderByDesc(CarInfo::getCreateTime)
-                .eq(hasText(auditStatus), CarInfo::getAuditStatus, auditStatus)
-                .and(hasText(keyword), w -> w.like(CarInfo::getVehicleName, keyword).or().like(CarInfo::getLicensePlate, keyword));
+                .eq(hasText(auditStatusFilter), CarInfo::getAuditStatus, auditStatusFilter)
+                .and(hasText(keywordFilter), w -> w.like(CarInfo::getVehicleName, keywordFilter).or().like(CarInfo::getLicensePlate, keywordFilter));
 
         Page<CarInfo> page = carInfoMapper.selectPage(new Page<>(safePageNo(pageNo), safePageSize(pageSize)), wrapper);
         List<OperationMaintenanceResp.VehicleAuditRow> rows = page.getRecords().stream().map(this::toAuditRow).toList();
@@ -210,10 +235,12 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
     @Transactional(rollbackFor = Exception.class)
     public ApiResponse<?> approveVehicleAudit(String licensePlate) {
         CarInfo carInfo = getVehicleByLicenseOrThrow(licensePlate);
+        bindVehicleToSubmitterIfNeeded(carInfo);
         carInfo.setAuditStatus("passed");
         carInfo.setRejectReason(null);
         carInfo.setUpdateTime(LocalDateTime.now());
         carInfoMapper.updateById(carInfo);
+        userNoticePublishService.publishVehicleAuditPassed(carInfo);
         return ApiResponse.success("vehicle audit approved", null);
     }
 
@@ -236,15 +263,18 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         carInfo.setRejectReason(rejectReason);
         carInfo.setUpdateTime(LocalDateTime.now());
         carInfoMapper.updateById(carInfo);
+        userNoticePublishService.publishVehicleAuditRejected(carInfo, toDisplayRejectReason(rejectReason));
         return ApiResponse.success("vehicle audit rejected", null);
     }
 
     @Override
     public byte[] exportVehicleAudit(String keyword, String auditStatus) {
+        String keywordFilter = trimToNull(keyword);
+        String auditStatusFilter = normalizeVehicleAuditStatus(auditStatus);
         LambdaQueryWrapper<CarInfo> wrapper = new LambdaQueryWrapper<CarInfo>()
                 .orderByDesc(CarInfo::getCreateTime)
-                .eq(hasText(auditStatus), CarInfo::getAuditStatus, auditStatus)
-                .and(hasText(keyword), w -> w.like(CarInfo::getVehicleName, keyword).or().like(CarInfo::getLicensePlate, keyword));
+                .eq(hasText(auditStatusFilter), CarInfo::getAuditStatus, auditStatusFilter)
+                .and(hasText(keywordFilter), w -> w.like(CarInfo::getVehicleName, keywordFilter).or().like(CarInfo::getLicensePlate, keywordFilter));
 
         List<CarInfo> records = carInfoMapper.selectList(wrapper);
 
@@ -321,6 +351,33 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
             throw BusinessException.notFound("vehicle not found");
         }
         return carInfo;
+    }
+
+    private void bindVehicleToSubmitterIfNeeded(CarInfo carInfo) {
+        if (carInfo == null || !hasText(carInfo.getSubmitterPhone()) || !hasText(carInfo.getLicensePlate())) {
+            return;
+        }
+        UserAccount user = userAccountMapper.selectById(carInfo.getSubmitterPhone().trim());
+        if (user == null) {
+            throw BusinessException.notFound("登记用户不存在，无法完成车辆审核通过");
+        }
+        String license = carInfo.getLicensePlate().trim();
+        if (sameLicense(user.getCar1License(), license)
+                || sameLicense(user.getCar2License(), license)
+                || sameLicense(user.getCar3License(), license)) {
+            return;
+        }
+
+        if (!hasText(user.getCar1License())) {
+            user.setCar1License(license);
+        } else if (!hasText(user.getCar2License())) {
+            user.setCar2License(license);
+        } else if (!hasText(user.getCar3License())) {
+            user.setCar3License(license);
+        } else {
+            throw BusinessException.badRequest("用户已绑定3辆车，无法审核通过该车辆");
+        }
+        userAccountMapper.updateById(user);
     }
 
     private List<String> normalizeRejectItems(List<String> rejectItems) {
@@ -556,6 +613,13 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         return value != null && !value.trim().isEmpty();
     }
 
+    private boolean sameLicense(String left, String right) {
+        if (!hasText(left) || !hasText(right)) {
+            return false;
+        }
+        return left.trim().equalsIgnoreCase(right.trim());
+    }
+
     private String trimToNull(String value) {
         if (!hasText(value)) {
             return null;
@@ -573,11 +637,15 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         if (carRealTime == null) {
             return null;
         }
+        Integer normalizedFromText = toDirectionCode(carRealTime.getDrivingDirection());
+        if (normalizedFromText != null) {
+            return normalizedFromText;
+        }
         Integer code = carRealTime.getDirection();
         if (code != null && (code == 1 || code == 2)) {
             return code;
         }
-        return toDirectionCode(carRealTime.getDrivingDirection());
+        return null;
     }
 
     private Integer toDirectionCode(String rawDirection) {
@@ -586,6 +654,17 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         }
         String s = rawDirection.trim().toLowerCase(Locale.ROOT);
         if ("1".equals(s)
+                || "哈密".equals(s)
+                || "下行".equals(s)
+                || "hami".equals(s)
+                || "towh".equals(s)
+                || "to_wh".equals(s)
+                || "tuyugou_to_hamimi".equals(s)
+                || "turpan_to_hami".equals(s)
+                || "to_hami".equals(s)) {
+            return 1;
+        }
+        if ("2".equals(s)
                 || "吐鲁番".equals(s)
                 || "上行".equals(s)
                 || "turpan".equals(s)
@@ -595,20 +674,20 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
                 || "hamimi_to_tuyugou".equals(s)
                 || "hami_to_turpan".equals(s)
                 || "to_turpan".equals(s)) {
-            return 1;
-        }
-        if ("2".equals(s)
-                || "哈密".equals(s)
-                || "下行".equals(s)
-                || "hami".equals(s)
-                || "towh".equals(s)
-                || "to_wh".equals(s)
-                || "tuyugou_to_hamimi".equals(s)
-                || "turpan_to_hami".equals(s)
-                || "to_hami".equals(s)) {
             return 2;
         }
         return null;
+    }
+    private String normalizeVehicleAuditStatus(String auditStatus) {
+        String value = trimToNull(auditStatus);
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.toLowerCase(Locale.ROOT);
+        if (!VEHICLE_AUDIT_STATUS_SET.contains(normalized)) {
+            throw BusinessException.badRequest("auditStatus must be one of: unaudited, passed, rejected");
+        }
+        return normalized;
     }
     private long safePageNo(long pageNo) {
         return pageNo <= 0 ? 1 : pageNo;

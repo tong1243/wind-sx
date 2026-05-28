@@ -41,6 +41,7 @@ public class WindControlResourceService {
      */
     public Map<String, Object> upsertPublishFacility(String id, Map<String, Object> body) {
         Map<String, Object> row = stateService.upsertById(stateService.getPublishFacilities(), "facilityId", id, body);
+        row.putIfAbsent("postInformation", "");
         stateService.persistSnapshot();
         return row;
     }

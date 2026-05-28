@@ -1,6 +1,6 @@
 package com.wut.screenwebsx.Controller;
 
-import com.wut.screencommonsx.Request.Wind.UpdateSpeedThresholdValueReq;
+import com.wut.screencommonsx.Request.Wind.UpdateSpeedThresholdByControlLevelReq;
 import com.wut.screencommonsx.Response.DefaultDataResp;
 import com.wut.screencommonsx.Util.ModelTransformUtil;
 import com.wut.screenwebsx.Service.WindControlWindImpactService;
@@ -33,7 +33,7 @@ public class WindImpactController {
     /**
      * 查询全线风力可视化数据。
      *
-     * mode 支持 real/forecast/max4h 三类视图。
+     * mode 支持 real/forecast/max2h/max72h（兼容历史 max4h 入参）。
      *
      * @param timestamp 查询时间戳（毫秒）
      * @param mode 可选视图模式
@@ -51,7 +51,7 @@ public class WindImpactController {
     /**
      * 查询风力限速阈值表。
      *
-     * 返回不同风级对应的客车、货车和危化品车辆限速。
+     * 返回不同风级对应的客车、货车限速。
      *
      * @return 风级阈值列表
      */
@@ -64,36 +64,57 @@ public class WindImpactController {
     }
 
     /**
-     * 更新指定风级限速阈值。
+     * 按管控等级更新阈值（主入口）。
      *
-     * 仅更新请求体中提供的字段，未提供字段保持原值。
+     * 规则：只允许更严格，不允许更宽松；低等级收紧到高等级后触发方案级联统一。
      *
-     * @param windLevel 风力等级（1-12）
+     * @param controlLevel 被编辑的管控等级（1-5）
      * @param req 阈值更新参数
-     * @return 更新后的阈值记录
+     * @return 更新结果
      */
-    @PutMapping("/wind-speed-thresholds/{windLevel}")
-    public DefaultDataResp updateWindSpeedThreshold(@PathVariable("windLevel") int windLevel,
-                                                    @Valid @RequestBody UpdateSpeedThresholdValueReq req) {
+    @PutMapping("/wind-speed-thresholds/{controlLevel}")
+    public DefaultDataResp updateWindSpeedThreshold(@PathVariable("controlLevel") int controlLevel,
+                                                    @Valid @RequestBody UpdateSpeedThresholdByControlLevelReq req) {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("windLevel", windLevel);
+        body.put("windLevelDesc", req.getWindLevelDesc());
         body.put("passengerSpeedLimit", req.getPassengerSpeedLimit());
         body.put("freightSpeedLimit", req.getFreightSpeedLimit());
-        body.put("dangerousGoodsSpeedLimit", req.getDangerousGoodsSpeedLimit());
         return ModelTransformUtil.getDefaultDataInstance(
-                "wind speed threshold updated",
-                windImpactService.updateSpeedThreshold(body)
+                "wind speed threshold updated by control level",
+                windImpactService.updateSpeedThresholdByControlLevel(controlLevel, body)
+        );
+    }
+
+    /**
+     * 按管控等级编辑风力阈值映射（兼容别名入口）。
+     *
+     * 规则：只允许更严格，不允许更宽松；低等级收紧到高等级后触发方案级联统一。
+     *
+     * @param controlLevel 被编辑的管控等级（1-5）
+     * @param req 编辑参数
+     * @return 更新结果
+     */
+    @PutMapping("/wind-speed-thresholds/by-control-level/{controlLevel}")
+    public DefaultDataResp updateWindSpeedThresholdByControlLevel(@PathVariable("controlLevel") int controlLevel,
+                                                                  @Valid @RequestBody UpdateSpeedThresholdByControlLevelReq req) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("windLevelDesc", req.getWindLevelDesc());
+        body.put("passengerSpeedLimit", req.getPassengerSpeedLimit());
+        body.put("freightSpeedLimit", req.getFreightSpeedLimit());
+        return ModelTransformUtil.getDefaultDataInstance(
+                "wind speed threshold updated by control level",
+                windImpactService.updateSpeedThresholdByControlLevel(controlLevel, body)
         );
     }
 
     /**
      * 查询风力时空影响研判结果。
      *
-     * direction 取值规则：1=吐鲁番方向，2=哈密方向；不传则返回双向数据。
+     * direction 取值规则：1=去往哈密方向，2=去往吐鲁番方向；不传则返回双向数据。
      *
      * @param timestamp 查询时间戳（毫秒）
      * @param periodType 可选时段类型
-     * @param direction 可选方向（1=吐鲁番方向，2=哈密方向）
+     * @param direction 可选方向（1=去往哈密方向，2=去往吐鲁番方向）
      * @return 时空影响研判结果
      */
     @GetMapping("/wind-impacts/spatiotemporal")
@@ -107,13 +128,67 @@ public class WindImpactController {
     }
 
     /**
+     * 4.2.3 实时大风时空影响研判。
+     *
+     * 固定区间：K3178-K3192、K3192-K3197、K3197-K3204；
+     * 固定双向：方向1(哈密) + 方向2(吐鲁番)，共 6 组记录。
+     *
+     * @param timestamp 查询时间戳（毫秒）
+     * @return 时空影响研判结果（实时）
+     */
+    @GetMapping("/wind-impacts/spatiotemporal/realtime")
+    public DefaultDataResp getWindImpactsSpatiotemporalRealtime(@RequestParam("timestamp") long timestamp) {
+        return ModelTransformUtil.getDefaultDataInstance(
+                "wind impact spatiotemporal realtime",
+                windImpactService.evaluateSpatiotemporalImpactReal(timestamp)
+        );
+    }
+
+    /**
+     * 4.2.3 未来2小时大风时空影响研判。
+     *
+     * 固定区间：K3178-K3192、K3192-K3197、K3197-K3204；
+     * 固定双向：方向1(哈密) + 方向2(吐鲁番)，共 6 组记录。
+     *
+     * @param timestamp 查询时间戳（毫秒）
+     * @return 时空影响研判结果（未来2小时）
+     */
+    @GetMapping("/wind-impacts/spatiotemporal/future2h")
+    public DefaultDataResp getWindImpactsSpatiotemporalFuture2h(@RequestParam("timestamp") long timestamp) {
+        return ModelTransformUtil.getDefaultDataInstance(
+                "wind impact spatiotemporal future2h",
+                windImpactService.evaluateSpatiotemporalImpactFuture2h(timestamp)
+        );
+    }
+
+    /**
+     * 查询 APP 限速发布数据。
+     *
+     * periodType 取值：real/future2h/all，direction 取值：1/2。
+     *
+     * @param timestamp 查询时间戳（毫秒）
+     * @param periodType 可选时段类型
+     * @param direction 可选方向（1=去往哈密方向，2=去往吐鲁番方向）
+     * @return APP 限速发布数据
+     */
+    @GetMapping("/wind-impacts/app-speed-publish")
+    public DefaultDataResp getAppSpeedPublish(@RequestParam("timestamp") long timestamp,
+                                              @RequestParam(value = "periodType", required = false) String periodType,
+                                              @RequestParam(value = "direction", required = false) Integer direction) {
+        return ModelTransformUtil.getDefaultDataInstance(
+                "wind app speed publish",
+                windImpactService.queryAppSpeedPublish(timestamp, periodType, direction)
+        );
+    }
+
+    /**
      * 查询风观测、历史或预测数据。
      *
      * period 控制时间窗口类型，direction 取值为 1/2。
      *
      * @param timestamp 查询时间戳（毫秒）
      * @param period 可选周期类型
-     * @param direction 可选方向（1=吐鲁番方向，2=哈密方向）
+     * @param direction 可选方向（1=去往哈密方向，2=去往吐鲁番方向）
      * @return 风数据序列结果
      */
     @GetMapping("/wind-observations")

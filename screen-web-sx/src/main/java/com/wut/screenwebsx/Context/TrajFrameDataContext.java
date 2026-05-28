@@ -180,7 +180,7 @@ public class TrajFrameDataContext {
                 trajInfoData.setTimestamp(traj.getTimestamp());
                 trajInfoData.setLicense(traj.getCarId());
                 trajInfoData.setPosition(DataParamParseUtil.getPositionStr(traj.getFrenetX()));
-                trajInfoData.setSpeed(DataParamParseUtil.getRoundValue(traj.getSpeedX()));
+                trajInfoData.setSpeed(DataParamParseUtil.getRoundValue(traj.getSpeedX() == null ? 0D : Math.abs(traj.getSpeedX())));
                 trajInfoData.getFrameList().add(DbModelTransformUtil.trajToFrameData(traj));
             }
 
@@ -245,11 +245,15 @@ public class TrajFrameDataContext {
 // 异步操作压缩接收轨迹数据帧的时间
     public CompletableFuture<Void> asyncSendTrajFrameData(TrajFrameModel trajFrameModel, long originalTrajToWHCount, long originalTrajToEZCount, TrajDirectionRecord expireRecord, TrajDirectionRecord offlineRecord, List<TrajInfoData> trajListToWH, List<TrajInfoData> trajListToEZ) {
         return CompletableFuture.runAsync(() -> {
+            double avgSpeedToWH = calculateAverageSpeed(trajListToWH);
+            double avgSpeedToEZ = calculateAverageSpeed(trajListToEZ);
             TrajCarStatisticData statisticData = new TrajCarStatisticData(
                     trajFrameModel.getCarToWH(),
                     trajFrameModel.getCarToEZ(),
                     (int)originalTrajToWHCount,
-                    (int)originalTrajToEZCount
+                    (int)originalTrajToEZCount,
+                    avgSpeedToWH,
+                    avgSpeedToEZ
             );
             TrajDataResp data = new TrajDataResp(
                     trajFrameModel.getTimestamp(),
@@ -309,4 +313,27 @@ public class TrajFrameDataContext {
         }, trajFrameDataSendTaskAsyncPool);
     }
 
+    private double calculateAverageSpeed(List<TrajInfoData> trajInfoList) {
+        if (CollectionEmptyUtil.forList(trajInfoList)) {
+            return 0D;
+        }
+        double sum = 0D;
+        int count = 0;
+        for (TrajInfoData item : trajInfoList) {
+            if (item == null) {
+                continue;
+            }
+            double speed = item.getSpeed();
+            if (Double.isFinite(speed) && speed >= 0D && speed <= 220D) {
+                sum += speed;
+                count++;
+            }
+        }
+        if (count == 0) {
+            return 0D;
+        }
+        return DataParamParseUtil.getRoundValue2(sum / count);
+    }
+
 }
+

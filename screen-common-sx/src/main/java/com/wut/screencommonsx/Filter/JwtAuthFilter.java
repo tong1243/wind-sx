@@ -41,6 +41,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             "/api/v1/wind-speed-thresholds",
             "/api/v1/wind-speed-thresholds/**",
             "/api/v1/wind-impacts/spatiotemporal",
+            "/api/v1/wind-impacts/spatiotemporal/**",
+            "/api/v1/wind-impacts/app-speed-publish",
             "/api/v1/wind-observations",
             "/api/v1/block-duration-forecasts",
 

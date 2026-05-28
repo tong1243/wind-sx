@@ -11,7 +11,7 @@ import java.util.List;
 public interface CarInfoService extends IService<CarInfo> {
     ApiResponse<List<CarInfo>> getMyVehicles(String phone);
 
-    ApiResponse<?> registerVehicle(VehicleRegisterRequest request, String phone);
+    ApiResponse<?>registerVehicle(VehicleRegisterRequest request, String phone);
 
     ApiResponse<?> updateVehicle(String licensePlate, VehicleUpdateRequest request, String phone);
 

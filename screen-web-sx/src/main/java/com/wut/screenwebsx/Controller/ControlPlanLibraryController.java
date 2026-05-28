@@ -46,8 +46,8 @@ public class ControlPlanLibraryController {
     /**
      * 更新指定等级的管控预案。
      */
-    @PutMapping("/control-plans/{level:\\d+}")
-    public DefaultDataResp updateControlPlan(@PathVariable("level") int level,
+    @PutMapping("/control-plans/{controlLevel:\\d+}")
+    public DefaultDataResp updateControlPlan(@PathVariable("controlLevel") int controlLevel,
                                              @Valid @RequestBody UpdateControlPlanReq req) {
         Map<String, Object> body = new LinkedHashMap<>();
         if (req.getMinWindLevel() != null) body.put("minWindLevel", req.getMinWindLevel());
@@ -55,7 +55,11 @@ public class ControlPlanLibraryController {
         if (req.getPassengerSpeedLimit() != null) body.put("passengerSpeedLimit", req.getPassengerSpeedLimit());
         if (req.getFreightSpeedLimit() != null) body.put("freightSpeedLimit", req.getFreightSpeedLimit());
         if (req.getDescription() != null) body.put("description", req.getDescription());
-        return ModelTransformUtil.getDefaultDataInstance("control plan updated", planLibraryService.updateControlPlanLevel(level, body));
+        if (req.getRiskSectionPlan() != null) body.put("riskSectionPlan", req.getRiskSectionPlan());
+        if (req.getUpstreamExitPlan() != null) body.put("upstreamExitPlan", req.getUpstreamExitPlan());
+        if (req.getUpstreamEntryPlan() != null) body.put("upstreamEntryPlan", req.getUpstreamEntryPlan());
+        if (req.getUpstreamServiceAreaPlan() != null) body.put("upstreamServiceAreaPlan", req.getUpstreamServiceAreaPlan());
+        return ModelTransformUtil.getDefaultDataInstance("control plan updated", planLibraryService.updateControlPlanLevel(controlLevel, body));
     }
 
     /**

@@ -14,4 +14,8 @@ public interface WindDataService extends IService<WindData> {
     List<WindData> listLatestSnapshot(LocalDateTime timestamp);
 
     List<WindData> listByTimeRange(LocalDateTime start, LocalDateTime end);
+
+    LocalDateTime findFirstTimestamp(String dataSourceFilter);
+
+    LocalDateTime findLastTimestamp(String dataSourceFilter);
 }

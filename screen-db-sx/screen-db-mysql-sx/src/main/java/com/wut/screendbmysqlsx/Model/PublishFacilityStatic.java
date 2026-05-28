@@ -32,6 +32,18 @@ public class PublishFacilityStatic {
     @TableField("segment")
     private String segment;
 
+    @TableField("interchange_name")
+    private String interchangeName;
+
+    @TableField("interchange_stake")
+    private String interchangeStake;
+
+    @TableField("red_alert_message")
+    private String redAlertMessage;
+
+    @TableField("color_alert_message")
+    private String colorAlertMessage;
+
     @TableField("sort_no")
     private Integer sortNo;
 

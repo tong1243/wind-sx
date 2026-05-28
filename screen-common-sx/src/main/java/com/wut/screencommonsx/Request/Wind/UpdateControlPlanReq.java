@@ -29,4 +29,16 @@ public class UpdateControlPlanReq {
 
     @Size(max = 255)
     private String description;
+
+    @Size(max = 255)
+    private String riskSectionPlan;
+
+    @Size(max = 255)
+    private String upstreamExitPlan;
+
+    @Size(max = 255)
+    private String upstreamEntryPlan;
+
+    @Size(max = 255)
+    private String upstreamServiceAreaPlan;
 }

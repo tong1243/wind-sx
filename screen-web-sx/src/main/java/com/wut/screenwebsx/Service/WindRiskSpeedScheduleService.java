@@ -1,7 +1,6 @@
 package com.wut.screenwebsx.Service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.wut.screendbmysqlsx.Model.WindData;
 import com.wut.screendbmysqlsx.Service.WindDataService;
 import com.wut.screenwebsx.Mapper.WindRiskSectionHourlyMapper;
 import com.wut.screenwebsx.Model.WindRiskSectionHourly;
@@ -90,25 +89,13 @@ public class WindRiskSpeedScheduleService {
     }
 
     private LocalDateTime findFirstSourceHour() {
-        LambdaQueryWrapper<WindData> wrapper = new LambdaQueryWrapper<>();
-        wrapper.select(WindData::getTimeStamp)
-                .isNotNull(WindData::getTimeStamp)
-                .orderByAsc(WindData::getTimeStamp)
-                .last("limit 1");
-        applyInputSourceFilter(wrapper);
-        WindData row = windDataService.getOne(wrapper, false);
-        return row == null ? null : truncateToHour(row.getTimeStamp());
+        LocalDateTime ts = windDataService.findFirstTimestamp(inputDataSource);
+        return truncateToHour(ts);
     }
 
     private LocalDateTime findLastSourceHour() {
-        LambdaQueryWrapper<WindData> wrapper = new LambdaQueryWrapper<>();
-        wrapper.select(WindData::getTimeStamp)
-                .isNotNull(WindData::getTimeStamp)
-                .orderByDesc(WindData::getTimeStamp)
-                .last("limit 1");
-        applyInputSourceFilter(wrapper);
-        WindData row = windDataService.getOne(wrapper, false);
-        return row == null ? null : truncateToHour(row.getTimeStamp());
+        LocalDateTime ts = windDataService.findLastTimestamp(inputDataSource);
+        return truncateToHour(ts);
     }
 
     private LocalDateTime findLatestCalculatedHour(String finalOutputSource) {
@@ -119,21 +106,6 @@ public class WindRiskSpeedScheduleService {
                 .last("limit 1");
         WindRiskSectionHourly row = windRiskSectionHourlyMapper.selectOne(wrapper);
         return row == null ? null : truncateToHour(row.getTimeStamp());
-    }
-
-    private void applyInputSourceFilter(LambdaQueryWrapper<WindData> wrapper) {
-        if (!hasText(inputDataSource)) {
-            return;
-        }
-        String filter = inputDataSource.trim();
-        if (filter.endsWith("*")) {
-            String prefix = filter.substring(0, filter.length() - 1);
-            if (hasText(prefix)) {
-                wrapper.likeRight(WindData::getDataSource, prefix);
-            }
-            return;
-        }
-        wrapper.eq(WindData::getDataSource, filter);
     }
 
     private LocalDateTime truncateToHour(LocalDateTime time) {

@@ -17,7 +17,7 @@ public class UcCarRealTime {
     private String currentPile;
     private Integer realSpeed;
     /**
-     * Direction code: 1=Turpan, 2=Hami.
+     * Direction code: 1=to Hami, 2=to Turpan.
      */
     private Integer direction;
     /**

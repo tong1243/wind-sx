@@ -7,6 +7,7 @@ import com.wut.screencommonsx.Request.GreenCodeRequest;
 import com.wut.screencommonsx.Response.ApiResponse;
 import com.wut.screenwebsx.Mapper.TravelReservationMapper;
 import com.wut.screenwebsx.Service.TravelReservationService;
+import com.wut.screenwebsx.Service.UserNoticePublishService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -21,6 +22,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class TravelReservationServiceImpl implements TravelReservationService {
     private final TravelReservationMapper reservationMapper;
+    private final UserNoticePublishService userNoticePublishService;
     private static final int RESERVATION_PENDING = 2;
     private static final int RESERVATION_APPROVED = 1;
     private static final int RESERVATION_REJECTED = 0;
@@ -28,18 +30,44 @@ public class TravelReservationServiceImpl implements TravelReservationService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ApiResponse<?> generateGreenCode(GreenCodeRequest request, String phone) {
-        if (request.getStartPoint().equals(request.getEndPoint())) {
-            throw BusinessException.badRequest("起点和终点不能相同");
+        String licensePlate = request == null ? null : request.getPlateNumber();
+        String travelTimeSlot = request == null ? null : request.getTravelTimeSlot();
+        String startPoint = request == null ? null : request.getStartPoint();
+        String endPoint = request == null ? null : request.getEndPoint();
+
+        try {
+            if (request.getStartPoint().equals(request.getEndPoint())) {
+                throw BusinessException.badRequest("起点和终点不能相同");
+            }
+
+            TravelReservation reservation = buildReservation(request, phone);
+            reservationMapper.insert(reservation);
+
+            userNoticePublishService.publishReservationSubmitSuccess(
+                    phone,
+                    reservation.getCarLicense(),
+                    reservation.getTravelTimeSlot(),
+                    reservation.getStartPoint(),
+                    reservation.getEndPoint()
+            );
+
+            GreenCodeResponse response = new GreenCodeResponse();
+            response.setSuccess(true);
+            response.setQrCode("data:image/png;base64,iVBORw0KGgoAAAANS...");
+            response.setReservationData(request);
+            return ApiResponse.success("预约提交成功", response);
+        } catch (BusinessException ex) {
+            userNoticePublishService.publishReservationSubmitFailed(
+                    phone, licensePlate, travelTimeSlot, startPoint, endPoint, ex.getMessage()
+            );
+            throw ex;
+        } catch (Exception ex) {
+            log.error("预约提交失败：phone={}, plate={}", phone, licensePlate, ex);
+            userNoticePublishService.publishReservationSubmitFailed(
+                    phone, licensePlate, travelTimeSlot, startPoint, endPoint, "系统异常，请稍后重试"
+            );
+            throw ex;
         }
-
-        TravelReservation reservation = buildReservation(request, phone);
-        reservationMapper.insert(reservation);
-
-        GreenCodeResponse response = new GreenCodeResponse();
-        response.setSuccess(true);
-        response.setQrCode("data:image/png;base64,iVBORw0KGgoAAAANS...");
-        response.setReservationData(request);
-        return ApiResponse.success("预约已提交，待审核", response);
     }
 
     @Override

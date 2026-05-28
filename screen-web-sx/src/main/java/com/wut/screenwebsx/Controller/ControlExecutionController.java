@@ -1,6 +1,5 @@
 package com.wut.screenwebsx.Controller;
 
-import com.wut.screencommonsx.Request.Wind.GenerateControlPlanReq;
 import com.wut.screencommonsx.Request.Wind.UpdateControlPlanStatusReq;
 import com.wut.screencommonsx.Response.DefaultDataResp;
 import com.wut.screencommonsx.Response.DefaultMsgResp;
@@ -9,7 +8,9 @@ import com.wut.screenwebsx.Service.WindControlExecutionService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -77,21 +78,54 @@ public class ControlExecutionController {
      * 根据实时/预测风级、路段和方向计算推荐等级，
      * 并保存为 DRAFT 状态方案。
      *
-     * @param req 方案生成请求
+     * @param req 方案生成请求（兼容风级与风速两种口径）
      * @return 新生成的方案草案
      */
     @PostMapping("/control-plans")
-    public DefaultDataResp createControlPlan(@Valid @RequestBody GenerateControlPlanReq req) {
+    public DefaultDataResp createControlPlan(@RequestBody Map<String, Object> req) {
+        if (req == null) {
+            req = new LinkedHashMap<>();
+        }
+        long timestamp = longValue(req.get("timestamp"), -1L);
+        if (timestamp <= 0) {
+            throw new IllegalArgumentException("timestamp is required");
+        }
+        String segment = stringValue(req.get("segment"));
+        if (segment.isBlank()) {
+            throw new IllegalArgumentException("segment is required");
+        }
+        Integer realtimeWindLevel = intOrNull(req.get("realtimeWindLevel"));
+        Integer forecastMaxWindLevel = intOrNull(req.get("forecastMaxWindLevel"));
+        Double actualWindSpeedMs = doubleOrNull(req.get("actualWindSpeedMs"));
+        Double forecastMaxWindSpeed2hMs = doubleOrNull(req.get("forecastMaxWindSpeed2hMs"));
+        List<Double> forecastWindSpeedSeriesMs = doubleListOrEmpty(req.get("forecastWindSpeedSeriesMs"));
+        Boolean forecastWindowUpdated = boolOrNull(req.get("forecastWindowUpdated"));
+        Integer direction = intOrNull(req.get("direction"));
+        Integer durationHours = intOrNull(req.get("durationHours"));
+
+        boolean hasLevelPair = realtimeWindLevel != null && forecastMaxWindLevel != null;
+        boolean hasSpeedPair = actualWindSpeedMs != null
+                && (forecastMaxWindSpeed2hMs != null || !forecastWindSpeedSeriesMs.isEmpty());
+        if (!hasLevelPair && !hasSpeedPair) {
+            throw new IllegalArgumentException(
+                    "realtimeWindLevel/forecastMaxWindLevel 与 actualWindSpeedMs/forecastMaxWindSpeed2hMs(或forecastWindSpeedSeriesMs) 至少提供一组"
+            );
+        }
+
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("timestamp", req.getTimestamp());
-        body.put("segment", req.getSegment());
-        body.put("direction", req.getDirection());
-        body.put("durationHours", req.getDurationHours());
-        body.put("realtimeWindLevel", req.getRealtimeWindLevel());
-        body.put("forecastMaxWindLevel", req.getForecastMaxWindLevel());
+        body.put("timestamp", timestamp);
+        body.put("segment", segment);
+        body.put("direction", direction);
+        body.put("durationHours", durationHours);
+        body.put("realtimeWindLevel", realtimeWindLevel);
+        body.put("forecastMaxWindLevel", forecastMaxWindLevel);
+        body.put("actualWindSpeedMs", actualWindSpeedMs);
+        body.put("forecastMaxWindSpeed2hMs", forecastMaxWindSpeed2hMs);
+        body.put("forecastWindSpeedSeriesMs", forecastWindSpeedSeriesMs);
+        body.put("forecastWindowUpdated", forecastWindowUpdated);
         return ModelTransformUtil.getDefaultDataInstance(
                 "control plan generated",
-                executionService.generateControlPlan(req.getTimestamp(), body)
+                executionService.generateControlPlan(timestamp, body)
         );
     }
 
@@ -162,13 +196,13 @@ public class ControlExecutionController {
      * 查询或导出大风事件记录。
      *
      * 支持按路段、桩号区间、方向、方案、时间区间和等级筛选。
-     * direction 取值：1=吐鲁番方向，2=哈密方向。
+     * direction 取值：1=去往哈密方向，2=去往吐鲁番方向。
      * format=csv 时返回 CSV 文本。
      *
      * @param segment 路段（可选）
      * @param startStake 起始桩号（可选）
      * @param endStake 结束桩号（可选）
-     * @param direction 方向（可选，1=吐鲁番方向，2=哈密方向）
+     * @param direction 方向（可选，1=去往哈密方向，2=去往吐鲁番方向）
      * @param controlPlan 方案编码（可选）
      * @param startTime 开始时间（可选）
      * @param endTime 结束时间（可选）
@@ -195,5 +229,82 @@ public class ControlExecutionController {
                 "wind events",
                 executionService.listWindEventRecords(segment, startStake, endStake, direction, controlPlan, startTime, endTime, controlLevel, limit)
         );
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private Long longValue(Object value, long defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+        if (value instanceof Number n) {
+            return n.longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (Exception e) {
+            return defaultValue;
+        }
+    }
+
+    private Integer intOrNull(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number n) {
+            return n.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private Double doubleOrNull(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number n) {
+            return n.doubleValue();
+        }
+        try {
+            return Double.parseDouble(String.valueOf(value));
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private Boolean boolOrNull(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Boolean b) {
+            return b;
+        }
+        String text = String.valueOf(value).trim().toLowerCase();
+        if ("true".equals(text) || "1".equals(text) || "yes".equals(text)) {
+            return true;
+        }
+        if ("false".equals(text) || "0".equals(text) || "no".equals(text)) {
+            return false;
+        }
+        return null;
+    }
+
+    private List<Double> doubleListOrEmpty(Object value) {
+        List<Double> list = new ArrayList<>();
+        if (!(value instanceof List<?> source)) {
+            return list;
+        }
+        for (Object item : source) {
+            Double parsed = doubleOrNull(item);
+            if (parsed != null) {
+                list.add(parsed);
+            }
+        }
+        return list;
     }
 }

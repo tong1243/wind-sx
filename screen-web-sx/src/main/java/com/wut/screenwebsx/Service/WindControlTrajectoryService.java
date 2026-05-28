@@ -38,14 +38,16 @@ import java.util.regex.Pattern;
 @Slf4j
 @Service
 public class WindControlTrajectoryService {
-    /** 下行方向（哈密）。 */
-    private static final int DIRECTION_HAMI = 2;
-    /** 上行方向（吐鲁番）。 */
-    private static final int DIRECTION_TURPAN = 1;
+    /** 去往哈密方向（下行）。 */
+    private static final int DIRECTION_HAMI = 1;
+    /** 去往吐鲁番方向（上行）。 */
+    private static final int DIRECTION_TURPAN = 2;
     /** 默认5分钟统计窗。 */
     private static final long WINDOW_5MIN_MS = 5L * 60 * 1000;
     /** 统计窗对应分钟数。 */
     private static final int WINDOW_5MIN = 5;
+    /** 速度上限阈值（km/h），超出后视为异常点。 */
+    private static final double MAX_VALID_SPEED_KMH = 220D;
     /** 桩号匹配规则，支持 K3178 与 K3178+500。 */
     private static final Pattern STAKE_PATTERN = Pattern.compile("K(\\d+)(?:\\+(\\d+))?", Pattern.CASE_INSENSITIVE);
     /** 时间后缀 yyyy_MM_dd。 */
@@ -216,13 +218,13 @@ public class WindControlTrajectoryService {
             if (match.speedKmh == null) {
                 continue;
             }
-            int overspeedThreshold = resolveOverspeedThreshold(match.section.realWindLevel, speedThresholdByWindLevel);
+            Integer overspeedThreshold = resolveOverspeedThreshold(match.section.realWindLevel, speedThresholdByWindLevel);
             String vehiclePlate = stateService.stringValue(match.traj.getCarId());
             if (vehiclePlate.isBlank()) {
                 vehiclePlate = "TRAJ-" + match.trajId;
             }
 
-            if (overspeedThreshold > 0 && match.speedKmh > overspeedThreshold) {
+            if (overspeedThreshold != null && overspeedThreshold > 0 && match.speedKmh > overspeedThreshold) {
                 rows.add(stateService.row(
                         "eventId", buildEventId(timestamp, seq++),
                         "eventType", "OVERSPEED",
@@ -700,8 +702,14 @@ public class WindControlTrajectoryService {
         }
         double vx = speedX == null ? 0D : speedX;
         double vy = speedY == null ? 0D : speedY;
-        double speed = Math.sqrt(vx * vx + vy * vy) * 3.6D;
-        if (Double.isNaN(speed) || Double.isInfinite(speed)) {
+        // 轨迹 speedX 通常更稳定地表示主行驶方向速度，speedY 在噪声场景会放大矢量速度。
+        double speedByVector = Math.sqrt(vx * vx + vy * vy);
+        double speedByLongitudinal = Math.abs(vx);
+        double speed = speedByVector;
+        if (speedByVector > MAX_VALID_SPEED_KMH && speedByLongitudinal <= MAX_VALID_SPEED_KMH) {
+            speed = speedByLongitudinal;
+        }
+        if (Double.isNaN(speed) || Double.isInfinite(speed) || speed < 0D || speed > MAX_VALID_SPEED_KMH) {
             return null;
         }
         return Math.round(speed * 10D) / 10D;
@@ -726,15 +734,18 @@ public class WindControlTrajectoryService {
     /**
      * 根据风级阈值表解析超速阈值。
      */
-    private int resolveOverspeedThreshold(int windLevel, Map<Integer, Map<String, Object>> thresholdByWindLevel) {
+    private Integer resolveOverspeedThreshold(int windLevel, Map<Integer, Map<String, Object>> thresholdByWindLevel) {
         if (thresholdByWindLevel == null || thresholdByWindLevel.isEmpty()) {
-            return 120;
+            return null;
         }
         Map<String, Object> row = thresholdByWindLevel.get(windLevel);
         if (row == null) {
-            return 120;
+            return null;
         }
-        int threshold = stateService.intValue(row.get("passengerSpeedLimit"), 120);
+        int threshold = stateService.intValue(row.get("passengerSpeedLimit"), -1);
+        if (threshold < 0) {
+            return null;
+        }
         return Math.max(0, threshold);
     }
 
@@ -771,11 +782,11 @@ public class WindControlTrajectoryService {
         if (text.isBlank()) {
             return defaultValue;
         }
-        if ("1".equals(text) || "上行".equals(text) || "吐鲁番".equals(text) || "turpan".equals(text) || "toez".equals(text) || "to_ez".equals(text)) {
-            return DIRECTION_TURPAN;
-        }
-        if ("2".equals(text) || "下行".equals(text) || "哈密".equals(text) || "hami".equals(text) || "towh".equals(text) || "to_wh".equals(text)) {
+        if ("1".equals(text) || "下行".equals(text) || "哈密".equals(text) || "hami".equals(text) || "towh".equals(text) || "to_wh".equals(text)) {
             return DIRECTION_HAMI;
+        }
+        if ("2".equals(text) || "上行".equals(text) || "吐鲁番".equals(text) || "turpan".equals(text) || "toez".equals(text) || "to_ez".equals(text)) {
+            return DIRECTION_TURPAN;
         }
         return defaultValue;
     }

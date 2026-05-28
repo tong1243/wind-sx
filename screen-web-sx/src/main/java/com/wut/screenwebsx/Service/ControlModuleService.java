@@ -10,6 +10,7 @@ import com.wut.screendbmysqlsx.Model.Traj;
 import com.wut.screendbmysqlsx.Service.ParametersService;
 import com.wut.screendbmysqlsx.Service.RoadSegmentStaticService;
 import com.wut.screendbmysqlsx.Service.TrajService;
+import com.wut.screenwebsx.Context.TrajFrameDataContext;
 import com.wut.screenwebsx.Config.DockingInterfaceConfig.Docking;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,12 +22,16 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
+
+import static com.wut.screencommonsx.Static.WebModuleStatic.TRAJ_EXPIRE_TIMEOUT;
 
 /**
  * 第四章接口聚合服务。
@@ -120,14 +125,9 @@ public class ControlModuleService {
                 .filter(Objects::nonNull)
                 .distinct()
                 .count();
-        long windowStart = Math.max(0L, timestamp - WINDOW_5MIN_MS);
-        long vehiclesCount = trajService.getListByTimestampRange(tableDateStr, windowStart, timestamp).stream()
-                .map(Traj::getTrajId)
-                .filter(Objects::nonNull)
-                .distinct()
-                .count();
-
-        double averageSpeed = DataParamParseUtil.getRoundValue(collectAverageSpeed(tableDateStr));
+        Map<Long, Integer> inTransitTrajDirectionMap = collectInTransitTrajDirectionMap(timestamp);
+        long vehiclesCount = inTransitTrajDirectionMap.size();
+        Double averageSpeed = collectAverageSpeed(tableDateStr, timestamp, inTransitTrajDirectionMap.keySet());
         List<RoadSegmentStatic> segmentList = roadSegmentStaticService.getEnabledSegments();
         RoadSegmentStatic maxWindSegment = segmentList.stream()
                 .max(Comparator.comparingInt(segment -> calcWindLevel(segment.getStartLocationM(), timestamp, "实时")))
@@ -360,8 +360,8 @@ public class ControlModuleService {
         List<Map<String, Object>> principleList = new ArrayList<>();
         principleList.add(row("controlArea", "风险区段", "principle", "根据管控等级实施分车型限速，VMS与APP联合发布限速信息。"));
         principleList.add(row("controlArea", "风险区段上游出口", "principle", "风险区段限速/禁行时，采用物理封路与VMS分流。"));
-        principleList.add(row("controlArea", "风险区段上游入口", "principle", "风险区段限速时引导预约，一级管控时禁止进入。"));
-        principleList.add(row("controlArea", "风险区段内服务区", "principle", "一级管控触发紧急避险，引导车辆进服务区等待放行。"));
+        principleList.add(row("controlArea", "风险区段上游入口", "principle", "风险区段限速时引导预约，红色警戒时禁止进入。"));
+        principleList.add(row("controlArea", "风险区段内服务区", "principle", "红色警戒触发紧急避险，引导车辆进服务区等待放行。"));
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("principleList", principleList);
@@ -387,7 +387,7 @@ public class ControlModuleService {
      */
     @Docking
     public Map<String, Object> collectVmsContent(String controlLevel) {
-        String targetControlLevel = hasText(controlLevel) ? controlLevel.trim() : "三级管控";
+        String targetControlLevel = hasText(controlLevel) ? controlLevel.trim() : "黄色警戒";
         List<Map<String, Object>> list = vmsContentRecords.stream()
                 .filter(item -> Objects.equals(item.get("controlLevel"), targetControlLevel))
                 .map(LinkedHashMap::new)
@@ -574,12 +574,100 @@ public class ControlModuleService {
         return maxWindLevel == 0 ? calcWindLevel(intervalDef.startMeter, timestamp, periodType) : maxWindLevel;
     }
 
-    private double collectAverageSpeed(String tableDateStr) {
-        List<Parameters> parametersList = parametersService.getListByDate(tableDateStr);
-        if (CollectionEmptyUtil.forList(parametersList)) {
-            return 0;
+    private Double collectAverageSpeed(String tableDateStr, long timestamp, Set<Long> inTransitTrajIdSet) {
+        if (inTransitTrajIdSet == null || inTransitTrajIdSet.isEmpty()) {
+            return null;
         }
-        return parametersList.stream().mapToDouble(Parameters::getSpeed).average().orElse(0);
+
+        long startTimestamp = Math.max(0L, timestamp - TRAJ_EXPIRE_TIMEOUT);
+        List<String> suffixList = new ArrayList<>();
+        suffixList.add(tableDateStr);
+        String startSuffix = DateParamParseUtil.getDateTableStr(startTimestamp);
+        if (!suffixList.contains(startSuffix)) {
+            suffixList.add(startSuffix);
+        }
+
+        Map<Long, Traj> latestByTrajId = new HashMap<>();
+        for (String suffix : suffixList) {
+            List<Traj> rows;
+            try {
+                rows = trajService.getListByTimestampRange(suffix, startTimestamp, timestamp);
+            } catch (Exception ignored) {
+                continue;
+            }
+            if (CollectionEmptyUtil.forList(rows)) {
+                continue;
+            }
+            for (Traj row : rows) {
+                Long trajId = row.getTrajId();
+                if (trajId == null || !inTransitTrajIdSet.contains(trajId)) {
+                    continue;
+                }
+                Traj latest = latestByTrajId.get(trajId);
+                long currentTs = row.getTimestamp() == null ? 0L : row.getTimestamp();
+                long latestTs = latest == null || latest.getTimestamp() == null ? 0L : latest.getTimestamp();
+                if (latest == null || currentTs >= latestTs) {
+                    latestByTrajId.put(trajId, row);
+                }
+            }
+        }
+
+        double sum = 0D;
+        int count = 0;
+        for (Traj traj : latestByTrajId.values()) {
+            Double speed = calcSpeedKmh(traj);
+            if (speed == null) {
+                continue;
+            }
+            sum += speed;
+            count++;
+        }
+        if (count == 0) {
+            return null;
+        }
+        return DataParamParseUtil.getRoundValue(sum / count);
+    }
+
+    private Map<Long, Integer> collectInTransitTrajDirectionMap(long timestamp) {
+        Map<Long, Integer> trajDirectionMap = new HashMap<>();
+        long lowerBound = Math.max(0L, timestamp - TRAJ_EXPIRE_TIMEOUT);
+
+        TrajFrameDataContext.getTRAJ_STATE_MAP().forEach((trajId, state) -> {
+            if (trajId == null || state == null || state.getTimestamp() < lowerBound) {
+                return;
+            }
+            int direction = state.getDirection();
+            if (direction == 1 || direction == 2) {
+                trajDirectionMap.put(trajId, direction);
+            }
+        });
+
+        TrajFrameDataContext.getTRAJ_MAP_TO_WH().keySet().forEach(trajId -> trajDirectionMap.put(trajId, 1));
+        TrajFrameDataContext.getTRAJ_MAP_TO_EZ().keySet().forEach(trajId -> trajDirectionMap.put(trajId, 2));
+        return trajDirectionMap;
+    }
+
+    private Double calcSpeedKmh(Traj traj) {
+        if (traj == null) {
+            return null;
+        }
+        Double speedX = traj.getSpeedX();
+        Double speedY = traj.getSpeedY();
+        if (speedX == null && speedY == null) {
+            return null;
+        }
+        double vx = speedX == null ? 0D : speedX;
+        double vy = speedY == null ? 0D : speedY;
+        double vectorSpeed = Math.sqrt(vx * vx + vy * vy);
+        double longitudinalSpeed = Math.abs(vx);
+        double speed = vectorSpeed;
+        if (vectorSpeed > 220D && longitudinalSpeed <= 220D) {
+            speed = longitudinalSpeed;
+        }
+        if (!Double.isFinite(speed) || speed < 0D || speed > 220D) {
+            return null;
+        }
+        return speed;
     }
 
     private double collectAverageStream(String tableDateStr) {
@@ -672,18 +760,18 @@ public class ControlModuleService {
 
     private String mapWindLevelToControlLevel(int windLevel) {
         if (windLevel >= 12) {
-            return "一级管控";
+            return "红色警戒";
         }
         if (windLevel >= 11) {
-            return "二级管控";
+            return "橙色警戒";
         }
         if (windLevel >= 9) {
-            return "三级管控";
+            return "黄色警戒";
         }
         if (windLevel >= 7) {
-            return "四级管控";
+            return "蓝色警戒";
         }
-        return "五级管控";
+        return "绿色警戒";
     }
 
     private double levelToWindSpeed(int windLevel) {
@@ -742,7 +830,7 @@ public class ControlModuleService {
             }
         }
         return row(
-                "controlLevel", "三级管控",
+                "controlLevel", "黄色警戒",
                 "windLevel", "9-10级",
                 "innerSegmentPlan", "小客车限速60km/h，客货车限速40km/h",
                 "upstreamExitPlan", "物理封路+可变信息诱导",
@@ -753,11 +841,11 @@ public class ControlModuleService {
 
     private String getLowerControlLevel(String controlLevel) {
         return switch (controlLevel) {
-            case "一级管控" -> "二级管控";
-            case "二级管控" -> "三级管控";
-            case "三级管控" -> "四级管控";
-            case "四级管控" -> "五级管控";
-            default -> "五级管控";
+            case "红色警戒" -> "橙色警戒";
+            case "橙色警戒" -> "黄色警戒";
+            case "黄色警戒" -> "蓝色警戒";
+            case "蓝色警戒" -> "绿色警戒";
+            default -> "绿色警戒";
         };
     }
 
@@ -890,11 +978,11 @@ public class ControlModuleService {
         if (!windThresholdRules.isEmpty()) {
             return;
         }
-        windThresholdRules.add(new WindThresholdRule("五级管控", "7级以下", 120, 80));
-        windThresholdRules.add(new WindThresholdRule("四级管控", "7-8级", 80, 60));
-        windThresholdRules.add(new WindThresholdRule("三级管控", "9-10级", 60, 40));
-        windThresholdRules.add(new WindThresholdRule("二级管控", "11级", 60, 0));
-        windThresholdRules.add(new WindThresholdRule("一级管控", "12级", 0, 0));
+        windThresholdRules.add(new WindThresholdRule("绿色警戒", "7级以下", 120, 80));
+        windThresholdRules.add(new WindThresholdRule("蓝色警戒", "7-8级", 80, 60));
+        windThresholdRules.add(new WindThresholdRule("黄色警戒", "9-10级", 60, 40));
+        windThresholdRules.add(new WindThresholdRule("橙色警戒", "11级", 60, 0));
+        windThresholdRules.add(new WindThresholdRule("红色警戒", "12级", 0, 0));
     }
 
     /**
@@ -958,7 +1046,7 @@ public class ControlModuleService {
             return;
         }
         planLibraryRecords.add(row(
-                "controlLevel", "五级管控",
+                "controlLevel", "绿色警戒",
                 "windLevel", "7级以下",
                 "innerSegmentPlan", "小客车限速120km/h，客货车限速80km/h",
                 "upstreamExitPlan", "所有车辆正常通行",
@@ -966,7 +1054,7 @@ public class ControlModuleService {
                 "serviceAreaPlan", "同风险区段内方案"
         ));
         planLibraryRecords.add(row(
-                "controlLevel", "四级管控",
+                "controlLevel", "蓝色警戒",
                 "windLevel", "7-8级",
                 "innerSegmentPlan", "小客车限速80km/h，客货车限速60km/h",
                 "upstreamExitPlan", "小客车限速100km/h，客货车限速70km/h",
@@ -974,7 +1062,7 @@ public class ControlModuleService {
                 "serviceAreaPlan", "同风险区段内方案"
         ));
         planLibraryRecords.add(row(
-                "controlLevel", "三级管控",
+                "controlLevel", "黄色警戒",
                 "windLevel", "9-10级",
                 "innerSegmentPlan", "小客车限速60km/h，客货车限速40km/h",
                 "upstreamExitPlan", "物理封路+可变信息诱导",
@@ -982,7 +1070,7 @@ public class ControlModuleService {
                 "serviceAreaPlan", "同风险区段内方案"
         ));
         planLibraryRecords.add(row(
-                "controlLevel", "二级管控",
+                "controlLevel", "橙色警戒",
                 "windLevel", "11级",
                 "innerSegmentPlan", "限速20km/h",
                 "upstreamExitPlan", "物理封路+可变信息诱导",
@@ -990,7 +1078,7 @@ public class ControlModuleService {
                 "serviceAreaPlan", "同风险区段内方案"
         ));
         planLibraryRecords.add(row(
-                "controlLevel", "一级管控",
+                "controlLevel", "红色警戒",
                 "windLevel", "12级",
                 "innerSegmentPlan", "限速20km/h（滞留车辆）",
                 "upstreamExitPlan", "物理封路+可变信息诱导",
@@ -1006,11 +1094,11 @@ public class ControlModuleService {
         if (!vmsContentRecords.isEmpty()) {
             return;
         }
-        vmsContentRecords.add(row("controlLevel", "三级管控", "scene", "管控路段内方案", "publishContent", "大风预警，限速通行，小客车60km/h，客货车40km/h。"));
-        vmsContentRecords.add(row("controlLevel", "三级管控", "scene", "管控路段上游出口及收费站方案", "publishContent", "前方大风区，建议驶离并按指引分流。"));
-        vmsContentRecords.add(row("controlLevel", "三级管控", "scene", "管控路段上游收费站方案", "publishContent", "前方大风区，请预约后通行。"));
-        vmsContentRecords.add(row("controlLevel", "二级管控", "scene", "管控路段内方案", "publishContent", "大风强预警，限速20km/h。"));
-        vmsContentRecords.add(row("controlLevel", "一级管控", "scene", "管控路段内方案", "publishContent", "极端大风，禁止通行，请驶入服务区避险。"));
+        vmsContentRecords.add(row("controlLevel", "黄色警戒", "scene", "管控路段内方案", "publishContent", "大风预警，限速通行，小客车60km/h，客货车40km/h。"));
+        vmsContentRecords.add(row("controlLevel", "黄色警戒", "scene", "管控路段上游出口及收费站方案", "publishContent", "前方大风区，建议驶离并按指引分流。"));
+        vmsContentRecords.add(row("controlLevel", "黄色警戒", "scene", "管控路段上游收费站方案", "publishContent", "前方大风区，请预约后通行。"));
+        vmsContentRecords.add(row("controlLevel", "橙色警戒", "scene", "管控路段内方案", "publishContent", "大风强预警，限速20km/h。"));
+        vmsContentRecords.add(row("controlLevel", "红色警戒", "scene", "管控路段内方案", "publishContent", "极端大风，禁止通行，请驶入服务区避险。"));
     }
 
     /**

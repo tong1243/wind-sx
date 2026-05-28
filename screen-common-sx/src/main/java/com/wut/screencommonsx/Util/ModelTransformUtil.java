@@ -26,7 +26,7 @@ public class ModelTransformUtil {
     }
 
     public static PostureStatisticData getPostureStatisticInstance() {
-        return new PostureStatisticData(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        return new PostureStatisticData(null, null, null, null, null, null);
     }
 
     public static DeviceStatisticData getDeviceStatisticInstance() {
