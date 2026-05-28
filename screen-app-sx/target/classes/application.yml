@@ -47,3 +47,26 @@ logging:
 
 mybatis-plus:
   mapperLocations: ["classpath*:/Mapper/*.xml"]
+
+wind:
+  risk-speed:
+    schedule:
+      enabled: true
+      # Run every 5 minutes at second 10 to leave time for upstream ingestion.
+      cron: "10 */5 * * * *"
+      # Keep empty to use all sources, or set prefix like ACCIDENT_WIND_MATRIX*.
+      input-data-source: ""
+      output-data-source: "MATLAB_RULE_V1"
+      # Recompute latest 3 hours on each run: current hour + next 2 hours.
+      recompute-hours: 3
+  realtime:
+    enabled: true
+    topic: "wind-realtime"
+    group-id: "group-wind"
+    default-data-source: "UDP_WIND"
+    # Used only when payload direction is missing and duplicate is false.
+    default-direction: 1
+    duplicate-both-directions-when-missing: true
+    auto-calculate: true
+    calculate-input-data-source: ""
+    calculate-output-source: "MATLAB_RULE_V1"

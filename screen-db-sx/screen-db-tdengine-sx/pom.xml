@@ -41,15 +41,12 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
+                    <skip>true</skip>
                     <excludes>
                         <exclude>
                             <groupId>org.projectlombok</groupId>
                             <artifactId>lombok</artifactId>
                         </exclude>
-                        <execution>
-                            <id>repackage</id>
-                            <phase>none</phase> <!-- 禁用 repackaging -->
-                        </execution>
                     </excludes>
                 </configuration>
             </plugin>
