@@ -57,6 +57,40 @@ public class WindControlWindImpactService {
             "K3197-K3204"
     );
     private static final String SAME_RISK_PLACEHOLDER = "\u540c\u98ce\u9669\u533a\u6bb5\u5185\u65b9\u6848";
+    private static final String VMS_INSIDE_SEGMENT = "vmsInsideSegment";
+    private static final String VMS_UPSTREAM_EXIT = "vmsUpstreamExit";
+    private static final String VMS_UPSTREAM_TOLLGATE = "vmsUpstreamTollgate";
+    private static final String VMS_UPSTREAM_SERVICE_AREA = "vmsUpstreamServiceArea";
+    private static final String VMS_LINE_T = "T";
+    private static final String VMS_LINE_H = "H";
+    private static final List<VmsDevice> VMS_DEVICES = List.of(
+            new VmsDevice(VMS_LINE_T, "K3282+300", VMS_UPSTREAM_TOLLGATE),
+            new VmsDevice(VMS_LINE_T, "K3281+370", VMS_UPSTREAM_EXIT),
+            new VmsDevice(VMS_LINE_T, "K3263+200", VMS_INSIDE_SEGMENT),
+            new VmsDevice(VMS_LINE_T, "K3243+100", VMS_UPSTREAM_SERVICE_AREA),
+            new VmsDevice(VMS_LINE_T, "K3234+000", VMS_INSIDE_SEGMENT),
+            new VmsDevice(VMS_LINE_T, "K3198+000", VMS_UPSTREAM_TOLLGATE),
+            new VmsDevice(VMS_LINE_T, "K3196+450", VMS_UPSTREAM_EXIT),
+            new VmsDevice(VMS_LINE_T, "K3191+800", VMS_UPSTREAM_SERVICE_AREA),
+            new VmsDevice(VMS_LINE_T, "K3180+000", VMS_INSIDE_SEGMENT),
+            new VmsDevice(VMS_LINE_T, "K3150+000", VMS_UPSTREAM_SERVICE_AREA),
+            new VmsDevice(VMS_LINE_T, "K3134+000", VMS_INSIDE_SEGMENT),
+            new VmsDevice(VMS_LINE_T, "K3117+850", VMS_UPSTREAM_TOLLGATE),
+            new VmsDevice(VMS_LINE_T, "K3110+500", VMS_UPSTREAM_EXIT),
+            new VmsDevice(VMS_LINE_H, "K3283+900", VMS_UPSTREAM_EXIT),
+            new VmsDevice(VMS_LINE_H, "K3283+000", VMS_UPSTREAM_TOLLGATE),
+            new VmsDevice(VMS_LINE_H, "K3261+200", VMS_INSIDE_SEGMENT),
+            new VmsDevice(VMS_LINE_H, "K3245+200", VMS_UPSTREAM_SERVICE_AREA),
+            new VmsDevice(VMS_LINE_H, "K3232+000", VMS_INSIDE_SEGMENT),
+            new VmsDevice(VMS_LINE_H, "K3199+500", VMS_UPSTREAM_EXIT),
+            new VmsDevice(VMS_LINE_H, "K3197+000", VMS_UPSTREAM_TOLLGATE),
+            new VmsDevice(VMS_LINE_H, "K3194+515", VMS_UPSTREAM_SERVICE_AREA),
+            new VmsDevice(VMS_LINE_H, "K3180+000", VMS_INSIDE_SEGMENT),
+            new VmsDevice(VMS_LINE_H, "K3152+900", VMS_UPSTREAM_SERVICE_AREA),
+            new VmsDevice(VMS_LINE_H, "K3132+000", VMS_INSIDE_SEGMENT),
+            new VmsDevice(VMS_LINE_H, "K3119+300", VMS_UPSTREAM_EXIT),
+            new VmsDevice(VMS_LINE_H, "K3117+800", VMS_UPSTREAM_TOLLGATE)
+    );
 
     /** 桩号提取规则，支持 K3191 与 K3191+800。 */
     private static final Pattern STAKE_PATTERN = Pattern.compile("K(\\d+(?:\\+\\d+)?)", Pattern.CASE_INSENSITIVE);
@@ -222,7 +256,8 @@ public class WindControlWindImpactService {
             }
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("controlInterval", controlInterval);
-            row.put("sendStakeRange", sendStartStake + "-" + sendEndStake);
+            String sendStakeRange = resolveControlIntervalSendStakeRange(controlInterval, sendStartStake, sendEndStake);
+            row.put("sendStakeRange", sendStakeRange);
             int controlLevel = resolveFinalControlLevel(latestRows, future2hRows, rowDirection, displayStartStake + "-" + displayEndStake);
             row.put("controlLevel", controlLevel);
             row.put("controlLevelText", levelName(controlLevel));
@@ -230,7 +265,8 @@ public class WindControlWindImpactService {
                     rowDirection,
                     controlInterval,
                     displayStartStake,
-                    displayEndStake
+                    displayEndStake,
+                    sendStakeRange
             );
             if (vmsData != null && !vmsData.isEmpty()) {
                 row.put("data", vmsData);
@@ -248,38 +284,137 @@ public class WindControlWindImpactService {
         return data;
     }
 
+    private String resolveControlIntervalSendStakeRange(String controlInterval, String sendStartStake, String sendEndStake) {
+        return switch (controlInterval) {
+            case "1-1" -> "K3203-K3198";
+            case "1-2" -> "K3197-K3194";
+            case "1-3" -> "K3193-K3178";
+            default -> sendStartStake + "-" + sendEndStake;
+        };
+    }
+
     private Map<String, Object> buildControlIntervalVmsData(int direction,
                                                             String controlInterval,
                                                             String startStake,
-                                                            String endStake) {
+                                                            String endStake,
+                                                            String sendStakeRange) {
+        double[] sendRange = parseRange(sendStakeRange);
+        if (sendRange == null) {
+            return Map.of();
+        }
         Map<String, Object> plan = findLatestPlanForControlInterval(controlInterval, direction, startStake, endStake);
         if (plan == null || plan.isEmpty()) {
             return Map.of();
         }
 
-        String riskSectionPlan = stateService.stringValue(plan.get("vmsInsideSegment"));
-        Map<String, Object> content = new LinkedHashMap<>();
-        putIfNotBlank(content, "vmsInsideSegment", riskSectionPlan);
-        putIfNotBlank(content, "vmsUpstreamExit",
-                materializePlanText(stateService.stringValue(plan.get("vmsUpstreamExit")), riskSectionPlan));
-        putIfNotBlank(content, "vmsUpstreamTollgate",
-                materializePlanText(stateService.stringValue(plan.get("vmsUpstreamTollgate")), riskSectionPlan));
-        putIfNotBlank(content, "vmsUpstreamServiceArea",
-                materializePlanText(stateService.stringValue(plan.get("vmsUpstreamServiceArea")), riskSectionPlan));
-        if (content.isEmpty()) {
-            return Map.of();
-        }
-
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("stake", resolvePlanVmsStake(plan, startStake, endStake));
-        row.put("content", content);
-        return row;
+        String riskSectionPlan = stateService.stringValue(plan.get(VMS_INSIDE_SEGMENT));
+        Map<String, Object> result = new LinkedHashMap<>();
+        putVmsItemIfNotBlank(result, controlInterval, sendStakeRange, sendRange, VMS_INSIDE_SEGMENT, riskSectionPlan);
+        putVmsItemIfNotBlank(result, controlInterval, sendStakeRange, sendRange, VMS_UPSTREAM_EXIT,
+                materializePlanText(stateService.stringValue(plan.get(VMS_UPSTREAM_EXIT)), riskSectionPlan));
+        putVmsItemIfNotBlank(result, controlInterval, sendStakeRange, sendRange, VMS_UPSTREAM_TOLLGATE,
+                materializePlanText(stateService.stringValue(plan.get(VMS_UPSTREAM_TOLLGATE)), riskSectionPlan));
+        putVmsItemIfNotBlank(result, controlInterval, sendStakeRange, sendRange, VMS_UPSTREAM_SERVICE_AREA,
+                materializePlanText(stateService.stringValue(plan.get(VMS_UPSTREAM_SERVICE_AREA)), riskSectionPlan));
+        return result;
     }
 
-    private void putIfNotBlank(Map<String, Object> target, String key, String value) {
-        if (value != null && !value.isBlank()) {
-            target.put(key, value);
+    private void putVmsItemIfNotBlank(Map<String, Object> target,
+                                      String controlInterval,
+                                      String sendStakeRange,
+                                      double[] sendRange,
+                                      String key,
+                                      String content) {
+        if (content == null || content.isBlank()) {
+            return;
         }
+        String stake = resolveVmsStake(controlInterval, sendStakeRange, sendRange, key);
+        if (stake.isBlank()) {
+            return;
+        }
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("stake", stake);
+        item.put("content", content);
+        target.put(key, item);
+    }
+
+    private String resolveVmsStake(String controlInterval, String sendStakeRange, double[] sendRange, String key) {
+        String line = vmsLineByControlInterval(controlInterval);
+        List<VmsDevice> candidates = VMS_DEVICES.stream()
+                .filter(device -> line.equals(device.line()))
+                .filter(device -> parseStakeValue(device.stake()) != null)
+                .toList();
+        if (VMS_INSIDE_SEGMENT.equals(key)) {
+            return selectInsideVmsStake(sendStakeRange, sendRange, candidates);
+        }
+        boolean upstreamLowerSide = isUpstreamLowerSide(sendStakeRange);
+        return candidates.stream()
+                .filter(device -> key.equals(device.type()))
+                .filter(device -> isUpstreamDevice(device, sendRange, upstreamLowerSide))
+                .min((left, right) -> compareUpstreamDevice(left, right, upstreamLowerSide))
+                .map(VmsDevice::stake)
+                .orElse("");
+    }
+
+    private String selectInsideVmsStake(String sendStakeRange, double[] sendRange, List<VmsDevice> candidates) {
+        boolean upstreamLowerSide = isUpstreamLowerSide(sendStakeRange);
+        String insideStake = candidates.stream()
+                .filter(device -> VMS_INSIDE_SEGMENT.equals(device.type()))
+                .filter(device -> isStakeInside(device, sendRange))
+                .min((left, right) -> compareInsideDevice(left, right, upstreamLowerSide))
+                .map(VmsDevice::stake)
+                .orElse("");
+        if (!insideStake.isBlank()) {
+            return insideStake;
+        }
+        return candidates.stream()
+                .filter(device -> isStakeInside(device, sendRange))
+                .min((left, right) -> compareInsideDevice(left, right, upstreamLowerSide))
+                .map(VmsDevice::stake)
+                .orElse("");
+    }
+
+    private String vmsLineByControlInterval(String controlInterval) {
+        return controlInterval != null && controlInterval.startsWith("2-") ? VMS_LINE_H : VMS_LINE_T;
+    }
+
+    private boolean isUpstreamLowerSide(String sendStakeRange) {
+        List<Double> ordered = parseOrderedStakeValues(sendStakeRange);
+        if (ordered.size() < 2) {
+            return true;
+        }
+        return ordered.get(0) < ordered.get(1);
+    }
+
+    private boolean isStakeInside(VmsDevice device, double[] sendRange) {
+        Double stakeValue = parseStakeValue(device.stake());
+        return stakeValue != null && stakeValue >= sendRange[0] && stakeValue <= sendRange[1];
+    }
+
+    private boolean isUpstreamDevice(VmsDevice device, double[] sendRange, boolean upstreamLowerSide) {
+        Double stakeValue = parseStakeValue(device.stake());
+        if (stakeValue == null) {
+            return false;
+        }
+        return upstreamLowerSide ? stakeValue < sendRange[0] : stakeValue > sendRange[1];
+    }
+
+    private int compareInsideDevice(VmsDevice left, VmsDevice right, boolean upstreamLowerSide) {
+        Double leftValue = parseStakeValue(left.stake());
+        Double rightValue = parseStakeValue(right.stake());
+        if (leftValue == null || rightValue == null) {
+            return 0;
+        }
+        return upstreamLowerSide ? Double.compare(leftValue, rightValue) : Double.compare(rightValue, leftValue);
+    }
+
+    private int compareUpstreamDevice(VmsDevice left, VmsDevice right, boolean upstreamLowerSide) {
+        Double leftValue = parseStakeValue(left.stake());
+        Double rightValue = parseStakeValue(right.stake());
+        if (leftValue == null || rightValue == null) {
+            return 0;
+        }
+        return upstreamLowerSide ? Double.compare(rightValue, leftValue) : Double.compare(leftValue, rightValue);
     }
 
     private Map<String, Object> findLatestPlanForControlInterval(String controlInterval,
@@ -333,15 +468,6 @@ public class WindControlWindImpactService {
             return n.longValue();
         }
         return 0L;
-    }
-
-    private String resolvePlanVmsStake(Map<String, Object> plan, String startStake, String endStake) {
-        String planStart = normalizeStakeText(stateService.stringValue(plan.get("startStake")));
-        String planEnd = normalizeStakeText(stateService.stringValue(plan.get("endStake")));
-        if (!planStart.isBlank() && !planEnd.isBlank()) {
-            return planStart + "-" + planEnd;
-        }
-        return startStake + "-" + endStake;
     }
 
     private String materializePlanText(String rawText, String riskSectionPlan) {
@@ -956,6 +1082,21 @@ public class WindControlWindImpactService {
         double start = Math.min(values.get(0), values.get(1));
         double end = Math.max(values.get(0), values.get(1));
         return new double[]{start, end};
+    }
+
+    private List<Double> parseOrderedStakeValues(String text) {
+        if (text == null) {
+            return List.of();
+        }
+        Matcher matcher = STAKE_PATTERN.matcher(text.toUpperCase(Locale.ROOT));
+        List<Double> values = new ArrayList<>();
+        while (matcher.find()) {
+            Double value = parseStakeValue("K" + matcher.group(1));
+            if (value != null) {
+                values.add(value);
+            }
+        }
+        return values;
     }
 
     /**
@@ -1622,6 +1763,30 @@ public class WindControlWindImpactService {
             this.stakeRange = stakeRange;
             this.startStake = startStake;
             this.endStake = endStake;
+        }
+    }
+
+    private static class VmsDevice {
+        private final String line;
+        private final String stake;
+        private final String type;
+
+        private VmsDevice(String line, String stake, String type) {
+            this.line = line;
+            this.stake = stake;
+            this.type = type;
+        }
+
+        private String line() {
+            return line;
+        }
+
+        private String stake() {
+            return stake;
+        }
+
+        private String type() {
+            return type;
         }
     }
 }
