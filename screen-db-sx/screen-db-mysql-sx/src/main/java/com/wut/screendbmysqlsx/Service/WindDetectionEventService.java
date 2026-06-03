@@ -12,7 +12,7 @@ public interface WindDetectionEventService extends IService<WindDetectionEvent> 
     void upsertByFingerprint(WindDetectionEvent event);
 
     /**
-     * 按更新时间倒序查询检测事件。
+     * 按更新时间倒序查询当天检测事件。
      */
     List<WindDetectionEvent> getAllOrdered();
 }

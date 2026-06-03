@@ -1019,11 +1019,11 @@ public class ControlModuleService {
         if (!dutyStaffRecords.isEmpty()) {
             return;
         }
-        dutyStaffRecords.add(row("staffId", "Staff001", "staffName", "张三", "onDutyStatus", "在岗", "team", "班组1", "phoneNumber", "15676648462"));
-        dutyStaffRecords.add(row("staffId", "Staff002", "staffName", "张四", "onDutyStatus", "在岗", "team", "班组1", "phoneNumber", "15676648463"));
-        dutyStaffRecords.add(row("staffId", "Staff003", "staffName", "张五", "onDutyStatus", "在岗", "team", "班组2", "phoneNumber", "15676648464"));
+        dutyStaffRecords.add(row("staffId", "Staff001", "staffName", "张三", "onDutyStatus", "在岗", "team", "中队1", "phoneNumber", "15676648462"));
+        dutyStaffRecords.add(row("staffId", "Staff002", "staffName", "张四", "onDutyStatus", "在岗", "team", "中队1", "phoneNumber", "15676648463"));
+        dutyStaffRecords.add(row("staffId", "Staff003", "staffName", "张五", "onDutyStatus", "在岗", "team", "中队2", "phoneNumber", "15676648464"));
         dutyStaffRecords.add(row("staffId", "Staff004", "staffName", "张六", "onDutyStatus", "不在岗", "team", "未分配", "phoneNumber", "15676648465"));
-        dutyStaffRecords.add(row("staffId", "Staff005", "staffName", "张七", "onDutyStatus", "在岗", "team", "班组3", "phoneNumber", "15676648466"));
+        dutyStaffRecords.add(row("staffId", "Staff005", "staffName", "张七", "onDutyStatus", "在岗", "team", "中队3", "phoneNumber", "15676648466"));
     }
 
     /**
@@ -1033,9 +1033,8 @@ public class ControlModuleService {
         if (!dutyTeamRecords.isEmpty()) {
             return;
         }
-        dutyTeamRecords.add(row("team", "班组1", "teamMembers", "张三,张四", "teamLeader", "张三", "responsibleNode", "红山口互通南", "dispatchStatus", "否"));
-        dutyTeamRecords.add(row("team", "班组2", "teamMembers", "张五", "teamLeader", "张五", "responsibleNode", "红山口服务区南", "dispatchStatus", "是"));
-        dutyTeamRecords.add(row("team", "班组3", "teamMembers", "张七", "teamLeader", "张七", "responsibleNode", "红山口互通北", "dispatchStatus", "否"));
+        dutyTeamRecords.add(row("team", "中队1", "teamMembers", "张三,张四", "teamLeader", "张三", "responsibleNode", "K2958-K3174", "dispatchStatus", "是"));
+        dutyTeamRecords.add(row("team", "中队2", "teamMembers", "张六", "teamLeader", "张六", "responsibleNode", "K3175-K3103", "dispatchStatus", "否"));
     }
 
     /**

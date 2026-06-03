@@ -809,6 +809,7 @@ public class WindControlStateService {
                     "teamId", teamId,
                     "name", stringValue(team.getName()),
                     "leaderId", stringValue(team.getLeaderId()),
+                    "contactName", stringValue(team.getContactName()),
                     "node", stringValue(team.getNode()),
                     "dispatchState", dispatchState,
                     "memberIds", parseMemberIds(team.getMemberIds())

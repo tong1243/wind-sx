@@ -94,6 +94,13 @@ public class WindControlPersistenceService {
                   event_id VARCHAR(64) NOT NULL,
                   start_time VARCHAR(64) NOT NULL,
                   segment VARCHAR(128) NOT NULL,
+                  incident_location VARCHAR(128) NOT NULL DEFAULT '',
+                  wind_speed_scale VARCHAR(64) NOT NULL DEFAULT '',
+                  management_plan VARCHAR(64) NOT NULL DEFAULT '',
+                  occurrence_time VARCHAR(64) NOT NULL DEFAULT '',
+                  conclusion_time VARCHAR(64) NOT NULL DEFAULT '',
+                  control_perimeter VARCHAR(128) NOT NULL DEFAULT '',
+                  on_duty_personnel VARCHAR(256) NOT NULL DEFAULT '',
                   direction VARCHAR(16) NOT NULL,
                   max_wind_level INT NOT NULL,
                   control_level INT NOT NULL,
@@ -104,6 +111,13 @@ public class WindControlPersistenceService {
                   UNIQUE KEY uk_event_id (event_id)
                 )
                 """);
+        ensureColumnExists("wind_event_record", "incident_location", "VARCHAR(128) NOT NULL DEFAULT ''");
+        ensureColumnExists("wind_event_record", "wind_speed_scale", "VARCHAR(64) NOT NULL DEFAULT ''");
+        ensureColumnExists("wind_event_record", "management_plan", "VARCHAR(64) NOT NULL DEFAULT ''");
+        ensureColumnExists("wind_event_record", "occurrence_time", "VARCHAR(64) NOT NULL DEFAULT ''");
+        ensureColumnExists("wind_event_record", "conclusion_time", "VARCHAR(64) NOT NULL DEFAULT ''");
+        ensureColumnExists("wind_event_record", "control_perimeter", "VARCHAR(128) NOT NULL DEFAULT ''");
+        ensureColumnExists("wind_event_record", "on_duty_personnel", "VARCHAR(256) NOT NULL DEFAULT ''");
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS wind_detection_event (
                   id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -215,6 +229,13 @@ public class WindControlPersistenceService {
         row.setEventId(stringValue(event.get("eventId")));
         row.setStartTime(stringValue(event.get("startTime")));
         row.setSegment(stringValue(event.get("segment")));
+        row.setIncidentLocation(stringValue(event.get("incidentLocation")));
+        row.setWindSpeedScale(stringValue(event.get("windSpeedScale")));
+        row.setManagementPlan(stringValue(event.get("managementPlan")));
+        row.setOccurrenceTime(stringValue(event.get("timeOfOccurrence")));
+        row.setConclusionTime(stringValue(event.get("conclusionTime")));
+        row.setControlPerimeter(stringValue(event.get("controlPerimeter")));
+        row.setOnDutyPersonnel(stringValue(event.get("onDutyPersonnel")));
         row.setDirection(stringValue(event.getOrDefault("direction", "")));
         row.setMaxWindLevel(intValue(event.get("maxWindLevel"), 0));
         row.setControlLevel(intValue(event.get("controlLevel"), 0));
@@ -268,7 +289,7 @@ public class WindControlPersistenceService {
     }
 
     /**
-     * 读取全部检测事件并按更新时间倒序返回。
+     * 读取当天检测事件并按更新时间倒序返回。
      */
     public List<Map<String, Object>> listAllDetectionEvents() {
         List<WindDetectionEvent> rows = windDetectionEventService.getAllOrdered();
@@ -354,5 +375,18 @@ public class WindControlPersistenceService {
         } catch (Exception e) {
             throw new IllegalStateException("build detection fingerprint failed", e);
         }
+    }
+
+    private void ensureColumnExists(String tableName, String columnName, String ddlType) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(1) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?",
+                Integer.class,
+                tableName,
+                columnName
+        );
+        if (count != null && count > 0) {
+            return;
+        }
+        jdbcTemplate.execute("ALTER TABLE `" + tableName + "` ADD COLUMN `" + columnName + "` " + ddlType);
     }
 }

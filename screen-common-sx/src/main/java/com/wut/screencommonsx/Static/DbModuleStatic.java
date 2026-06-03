@@ -8,6 +8,7 @@ public class DbModuleStatic {
             "section",
             "traj_near_real",
             "wind_data",
+            "wind_detection_event",
             "posture",
             "fibermetric",
             "radarmetric",

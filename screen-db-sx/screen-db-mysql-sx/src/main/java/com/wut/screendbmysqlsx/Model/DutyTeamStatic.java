@@ -23,8 +23,13 @@ public class DutyTeamStatic {
     @TableField("name")
     private String name;
 
-    @TableField("leader_id")
+    // 兼容历史库：部分环境 duty_team_static 不存在 leader_id 列。
+    // 设为非持久化字段，避免 MyBatis-Plus 生成 SQL 时引用不存在列。
+    @TableField(exist = false)
     private String leaderId;
+
+    @TableField("contact_name")
+    private String contactName;
 
     @TableField("node")
     private String node;

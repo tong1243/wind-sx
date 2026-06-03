@@ -29,6 +29,27 @@ public class WindEventRecord {
     @TableField("segment")
     private String segment;
 
+    @TableField("incident_location")
+    private String incidentLocation;
+
+    @TableField("wind_speed_scale")
+    private String windSpeedScale;
+
+    @TableField("management_plan")
+    private String managementPlan;
+
+    @TableField("occurrence_time")
+    private String occurrenceTime;
+
+    @TableField("conclusion_time")
+    private String conclusionTime;
+
+    @TableField("control_perimeter")
+    private String controlPerimeter;
+
+    @TableField("on_duty_personnel")
+    private String onDutyPersonnel;
+
     @TableField("direction")
     private String direction;
 

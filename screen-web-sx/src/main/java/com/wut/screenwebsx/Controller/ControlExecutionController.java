@@ -54,6 +54,17 @@ public class ControlExecutionController {
     }
 
     /**
+     * 大屏图一：管控方案自动生成与调整表格接口。
+     */
+    @GetMapping("/control-dashboard/auto-generation")
+    public DefaultDataResp listAutoGenerationTable(@RequestParam(value = "status", required = false) String status) {
+        return ModelTransformUtil.getDefaultDataInstance(
+                "dashboard auto-generation table",
+                executionService.listAutoGenerationTableRows(status)
+        );
+    }
+
+    /**
      * 兼容旧路由：仅当携带 status 参数时，视为“已生成方案列表”查询。
      */
     @GetMapping(value = "/control-plans", params = "status")
@@ -70,6 +81,33 @@ public class ControlExecutionController {
     @GetMapping("/control-plans/{planId:[0-9a-fA-F]{8}}")
     public DefaultDataResp getControlPlan(@PathVariable("planId") String planId) {
         return ModelTransformUtil.getDefaultDataInstance("control plan", executionService.getGeneratedPlan(planId));
+    }
+
+    /**
+     * 大屏图二：点击图一“编辑”后，自动生成并填充执行确认表。
+     *
+     * 行为：
+     * 1) 管控开始时间重置为当前时间；
+     * 2) 预计结束时间重置为当前+2小时；
+     * 3) 返回图二完整渲染字段。
+     */
+    @PostMapping("/control-dashboard/execution/{planId:[0-9a-fA-F]{8}}")
+    public DefaultDataResp buildExecutionTableByEdit(@PathVariable("planId") String planId) {
+        return ModelTransformUtil.getDefaultDataInstance(
+                "dashboard execution table",
+                executionService.buildExecutionTableByEdit(planId)
+        );
+    }
+
+    /**
+     * 大屏图二：单独查询设备发布信息列表（vmsPublishItems）。
+     */
+    @GetMapping("/control-dashboard/execution/{planId:[0-9a-fA-F]{8}}/vms-publish-items")
+    public DefaultDataResp listExecutionVmsPublishItems(@PathVariable("planId") String planId) {
+        return ModelTransformUtil.getDefaultDataInstance(
+                "dashboard execution vmsPublishItems",
+                executionService.listExecutionVmsPublishItems(planId)
+        );
     }
 
     /**
@@ -213,10 +251,12 @@ public class ControlExecutionController {
      */
     @GetMapping("/wind-events")
     public DefaultDataResp listWindEvents(@RequestParam(value = "segment", required = false) String segment,
+                                          @RequestParam(value = "incidentLocation", required = false) String incidentLocation,
                                           @RequestParam(value = "startStake", required = false) String startStake,
                                           @RequestParam(value = "endStake", required = false) String endStake,
                                           @RequestParam(value = "direction", required = false) Integer direction,
                                           @RequestParam(value = "controlPlan", required = false) String controlPlan,
+                                          @RequestParam(value = "managementPlan", required = false) String managementPlan,
                                           @RequestParam(value = "startTime", required = false) String startTime,
                                           @RequestParam(value = "endTime", required = false) String endTime,
                                           @RequestParam(value = "controlLevel", required = false) Integer controlLevel,
@@ -227,7 +267,19 @@ public class ControlExecutionController {
         }
         return ModelTransformUtil.getDefaultDataInstance(
                 "wind events",
-                executionService.listWindEventRecords(segment, startStake, endStake, direction, controlPlan, startTime, endTime, controlLevel, limit)
+                executionService.listWindEventRecords(segment, incidentLocation, startStake, endStake, direction,
+                        controlPlan, managementPlan, startTime, endTime, controlLevel, limit)
+        );
+    }
+
+    /**
+     * 大屏图三：事件报告表格接口。
+     */
+    @GetMapping("/control-dashboard/event-reports")
+    public DefaultDataResp listEventReportTable(@RequestParam(value = "limit", required = false) Integer limit) {
+        return ModelTransformUtil.getDefaultDataInstance(
+                "dashboard event-report table",
+                executionService.listEventReportTableRows(limit)
         );
     }
 
