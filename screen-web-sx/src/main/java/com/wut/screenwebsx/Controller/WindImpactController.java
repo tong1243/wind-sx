@@ -49,6 +49,23 @@ public class WindImpactController {
     }
 
     /**
+     * 查询管控区间下发桩号。
+     *
+     * 基于 road_segment_static.control_interval 聚合；展示区间使用路段起止边界，
+     * 实际下发数据使用区间内各路段的结束桩号。
+     *
+     * @param direction 可选方向（1=去往哈密方向，2=去往吐鲁番方向）
+     * @return 管控区间下发桩号列表
+     */
+    @GetMapping("/wind-control-intervals")
+    public DefaultDataResp listWindControlIntervals(@RequestParam(value = "direction", required = false) Integer direction) {
+        return ModelTransformUtil.getDefaultDataInstance(
+                "wind control intervals",
+                windImpactService.listControlIntervalSendRanges(direction)
+        );
+    }
+
+    /**
      * 查询风力限速阈值表。
      *
      * 返回不同风级对应的客车、货车限速。

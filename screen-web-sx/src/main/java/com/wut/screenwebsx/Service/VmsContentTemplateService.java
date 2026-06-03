@@ -59,7 +59,7 @@ public class VmsContentTemplateService {
         List<VmsContentTemplateStatic> rows = templateService.listByControlLevel(level, enabled);
         List<Map<String, Object>> records = new ArrayList<>();
         for (VmsContentTemplateStatic row : rows) {
-            records.add(toView(row));
+            records.addAll(toFacilityViews(row));
         }
 
         Map<String, Object> data = new LinkedHashMap<>();
@@ -175,7 +175,7 @@ public class VmsContentTemplateService {
         data.put("templateText", renderTemplateText(
                 matched.getTemplateText(),
                 matched.getControlLevel(),
-                Map.of()
+                defaultTemplateVariables(matched.getControlLevel(), matched.getPublishPosition(), null)
         ));
         data.put("templateGraphicJson", parseGraphicJson(matched.getTemplateGraphicJson()));
         return data;
@@ -187,8 +187,8 @@ public class VmsContentTemplateService {
     public Map<String, Object> renderPreview(RenderVmsContentTemplatePreviewReq req) {
         VmsContentTemplateStatic row = requireTemplate(req.getTemplateCode());
         Map<String, String> variables = req.getVariables() == null ? Map.of() : req.getVariables();
-        Map<String, String> mergedVariables = new LinkedHashMap<>(variables);
-        mergedVariables.putAll(defaultSpeedVariables(row.getControlLevel()));
+        Map<String, String> mergedVariables = new LinkedHashMap<>(defaultTemplateVariables(row.getControlLevel(), row.getPublishPosition(), null));
+        mergedVariables.putAll(variables);
 
         String renderedText = renderTemplateText(row.getTemplateText(), row.getControlLevel(), mergedVariables);
         List<String> unresolved = extractUnresolvedPlaceholders(renderedText);
@@ -283,16 +283,41 @@ public class VmsContentTemplateService {
     }
 
     private Map<String, Object> toView(VmsContentTemplateStatic row) {
+        return toView(row, null);
+    }
+
+    private List<Map<String, Object>> toFacilityViews(VmsContentTemplateStatic row) {
+        List<Map<String, Object>> views = new ArrayList<>();
+        List<Map<String, Object>> facilities = matchedFacilities(row.getPublishPosition());
+        if (facilities.isEmpty()) {
+            views.add(toView(row, null));
+            return views;
+        }
+        for (Map<String, Object> facility : facilities) {
+            views.add(toView(row, facility));
+        }
+        return views;
+    }
+
+    private Map<String, Object> toView(VmsContentTemplateStatic row, Map<String, Object> facility) {
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("id", row.getId());
         view.put("templateCode", row.getTemplateCode());
         view.put("controlLevel", row.getControlLevel());
         view.put("publishPosition", row.getPublishPosition());
         view.put("vehicleType", row.getVehicleType());
+        if (facility != null) {
+            view.put("facilityId", stateService.stringValue(facility.get("facilityId")));
+            view.put("pileNo", stateService.stringValue(facility.get("pileNo")));
+            view.put("direction", stateService.intValue(facility.get("direction"), 0));
+            view.put("facilitySegment", stateService.stringValue(facility.get("segment")));
+            view.put("interchangeName", stateService.stringValue(facility.get("interchangeName")));
+        }
+        view.put("roadName", resolveRoadName(row.getPublishPosition(), facility));
         view.put("templateText", renderTemplateText(
                 row.getTemplateText(),
                 row.getControlLevel(),
-                Map.of()
+                defaultTemplateVariables(row.getControlLevel(), row.getPublishPosition(), facility)
         ));
         view.put("templateGraphicJson", parseGraphicJson(row.getTemplateGraphicJson()));
         view.put("sortNo", row.getSortNo());
@@ -304,7 +329,7 @@ public class VmsContentTemplateService {
 
     private String renderTemplateText(String templateText, String controlLevel, Map<String, String> externalVariables) {
         String raw = templateText == null ? "" : templateText;
-        Map<String, String> variables = new LinkedHashMap<>(defaultSpeedVariables(controlLevel));
+        Map<String, String> variables = new LinkedHashMap<>(defaultTemplateVariables(controlLevel, "", null));
         if (externalVariables != null && !externalVariables.isEmpty()) {
             variables.putAll(externalVariables);
         }
@@ -333,8 +358,10 @@ public class VmsContentTemplateService {
         return new ArrayList<>(unresolved);
     }
 
-    private Map<String, String> defaultSpeedVariables(String controlLevel) {
+    private Map<String, String> defaultTemplateVariables(String controlLevel, String publishPosition, Map<String, Object> facility) {
         Map<String, String> vars = new LinkedHashMap<>();
+        vars.put("ROAD_NAME", resolveRoadName(publishPosition, facility));
+
         Map<String, Object> plan = resolvePlan(controlLevel);
         if (plan == null) {
             return vars;
@@ -342,6 +369,71 @@ public class VmsContentTemplateService {
         vars.put("LIGHT_SPEED", stateService.stringValue(plan.get("passengerSpeedLimit")));
         vars.put("HEAVY_SPEED", stateService.stringValue(plan.get("freightSpeedLimit")));
         return vars;
+    }
+
+    private List<Map<String, Object>> matchedFacilities(String publishPosition) {
+        List<Map<String, Object>> facilities = new ArrayList<>();
+        for (Map<String, Object> facility : stateService.getPublishFacilities()) {
+            if (matchesPublishPosition(facility, publishPosition)) {
+                facilities.add(facility);
+            }
+        }
+        return facilities;
+    }
+
+    private boolean matchesPublishPosition(Map<String, Object> facility, String publishPosition) {
+        String segment = stateService.stringValue(facility.get("segment"));
+        String facilityId = stateService.stringValue(facility.get("facilityId")).toUpperCase(Locale.ROOT);
+        if ("UPSTREAM_EXIT".equals(publishPosition)) {
+            return segment.contains("出口") || facilityId.endsWith("R");
+        }
+        if ("UPSTREAM_ENTRY_TOLL".equals(publishPosition)) {
+            return segment.contains("入口") || facilityId.endsWith("C");
+        }
+        if ("SERVICE_AREA".equals(publishPosition)) {
+            return segment.contains("服务区") && (segment.contains("前") || segment.contains("入口"));
+        }
+        if ("IN_SECTION".equals(publishPosition)) {
+            return isSectionFacilitySegment(segment);
+        }
+        return false;
+    }
+
+    private boolean isSectionFacilitySegment(String segment) {
+        if (segment.isBlank()) {
+            return false;
+        }
+        if (segment.contains("入口") || segment.contains("出口") || segment.contains("服务区前") || segment.contains("服务区入口") || segment.contains("互通前")) {
+            return false;
+        }
+        return segment.contains("区段") || segment.contains("-");
+    }
+
+    private String resolveRoadName(String publishPosition, Map<String, Object> facility) {
+        if (facility == null) {
+            return "";
+        }
+        String segment = stateService.stringValue(facility.get("segment"));
+        String interchangeName = stateService.stringValue(facility.get("interchangeName"));
+        if ("UPSTREAM_EXIT".equals(publishPosition) || "UPSTREAM_ENTRY_TOLL".equals(publishPosition)) {
+            return interchangeName.isBlank() ? segment : interchangeName;
+        }
+        if ("SERVICE_AREA".equals(publishPosition)) {
+            return extractServiceAreaName(segment);
+        }
+        return segment;
+    }
+
+    private String extractServiceAreaName(String segment) {
+        if (segment == null || segment.isBlank()) {
+            return "";
+        }
+        String value = segment.trim();
+        int index = value.indexOf("服务区");
+        if (index < 0) {
+            return value;
+        }
+        return value.substring(0, index + "服务区".length());
     }
 
     private Map<String, Object> findPlanByLevelName(String controlLevel) {
@@ -358,7 +450,7 @@ public class VmsContentTemplateService {
      * 将模板等级映射到管控预案等级并返回对应预案。
      * 规则：
      * 1) 优先按 levelName 精确命中；
-     * 2) “正常通行”映射到“绿色警戒”；
+     * 2) 兼容旧数据中的“绿色警戒”；
      * 3) 若仍未命中，按约定等级编号回退（红1、橙2、黄3、蓝4、绿/正常5）。
      */
     private Map<String, Object> resolvePlan(String controlLevel) {
@@ -367,10 +459,10 @@ public class VmsContentTemplateService {
             return exact;
         }
 
-        if ("正常通行".equals(controlLevel)) {
-            Map<String, Object> green = findPlanByLevelName("绿色警戒");
-            if (green != null) {
-                return green;
+        if ("绿色警戒".equals(controlLevel)) {
+            Map<String, Object> normal = findPlanByLevelName("正常通行");
+            if (normal != null) {
+                return normal;
             }
         }
 

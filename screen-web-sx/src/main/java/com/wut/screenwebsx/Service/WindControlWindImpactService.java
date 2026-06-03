@@ -153,6 +153,96 @@ public class WindControlWindImpactService {
     }
 
     /**
+     * 按 road_segment_static.control_interval 聚合管控区间，并生成实际下发的结束桩号范围。
+     *
+     * 示例：展示区间 K3178-K3192 由 K3178-K3179 ... K3191-K3192 组成，
+     * 实际下发结束桩号为 K3179-K3192。
+     *
+     * @param direction 可选方向（1=去往哈密方向，2=去往吐鲁番方向）
+     * @return 管控区间下发桩号数据
+     */
+    public Map<String, Object> listControlIntervalSendRanges(Integer direction) {
+        Integer normalizedDirection = direction == null ? null : normalizeDirection(direction);
+        Map<String, List<Map<String, Object>>> grouped = new LinkedHashMap<>();
+        for (Map<String, Object> section : stateService.getFullLineWindSections()) {
+            int sectionDirection = stateService.intValue(section.get("direction"), DIRECTION_HAMI);
+            if (normalizedDirection != null && sectionDirection != normalizedDirection) {
+                continue;
+            }
+            String controlInterval = stateService.stringValue(section.get("controlInterval"));
+            String startStake = normalizeStakeText(stateService.stringValue(section.get("startStake")));
+            String endStake = normalizeStakeText(stateService.stringValue(section.get("endStake")));
+            if (controlInterval.isBlank() || startStake.isBlank() || endStake.isBlank()) {
+                continue;
+            }
+            String key = sectionDirection + "|" + controlInterval;
+            grouped.computeIfAbsent(key, ignored -> new ArrayList<>()).add(section);
+        }
+
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Map.Entry<String, List<Map<String, Object>>> entry : grouped.entrySet()) {
+            List<Map<String, Object>> sections = entry.getValue();
+            if (sections.isEmpty()) {
+                continue;
+            }
+            int rowDirection = stateService.intValue(sections.get(0).get("direction"), DIRECTION_HAMI);
+            String controlInterval = stateService.stringValue(sections.get(0).get("controlInterval"));
+            List<String> sendStakeList = new ArrayList<>();
+            String displayStartStake = "";
+            String displayEndStake = "";
+            String sendStartStake = "";
+            String sendEndStake = "";
+
+            for (Map<String, Object> section : sections) {
+                String startStake = normalizeStakeText(stateService.stringValue(section.get("startStake")));
+                String endStake = normalizeStakeText(stateService.stringValue(section.get("endStake")));
+                if (startStake.isBlank() || endStake.isBlank()) {
+                    continue;
+                }
+                if (displayStartStake.isBlank()) {
+                    displayStartStake = startStake;
+                }
+                displayEndStake = endStake;
+                if (sendStartStake.isBlank()) {
+                    sendStartStake = endStake;
+                }
+                sendEndStake = endStake;
+                sendStakeList.add(endStake);
+            }
+
+            if (displayStartStake.isBlank() || displayEndStake.isBlank() || sendStartStake.isBlank() || sendEndStake.isBlank()) {
+                continue;
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("controlInterval", controlInterval);
+            row.put("direction", rowDirection);
+            row.put("directionText", directionText(rowDirection));
+            row.put("displayStartStake", displayStartStake);
+            row.put("displayEndStake", displayEndStake);
+            row.put("displayStakeRange", displayStartStake + "-" + displayEndStake);
+            row.put("sendStartStake", sendStartStake);
+            row.put("sendEndStake", sendEndStake);
+            row.put("sendStakeRange", sendStartStake + "-" + sendEndStake);
+            row.put("sendStakeList", sendStakeList);
+            row.put("segmentCount", sendStakeList.size());
+            rows.add(row);
+        }
+
+        rows.sort((a, b) -> {
+            int d = Integer.compare(stateService.intValue(a.get("direction"), 0), stateService.intValue(b.get("direction"), 0));
+            if (d != 0) {
+                return d;
+            }
+            return stateService.stringValue(a.get("controlInterval")).compareTo(stateService.stringValue(b.get("controlInterval")));
+        });
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("direction", normalizedDirection);
+        data.put("records", rows);
+        return data;
+    }
+
+    /**
      * 查询风力限速阈值表（4.2.2）。
      *
      * 说明：此接口仍使用静态阈值配置（表1-6 + 运行时调整），与 wind_data 解耦。
@@ -677,7 +767,7 @@ public class WindControlWindImpactService {
             case 2 -> "橙色警戒";
             case 3 -> "黄色警戒";
             case 4 -> "蓝色警戒";
-            case 5 -> "绿色警戒";
+            case 5 -> "正常通行";
             default -> "未知";
         };
     }
@@ -693,6 +783,10 @@ public class WindControlWindImpactService {
             throw new IllegalArgumentException("direction must be 1(hami) or 2(turpan)");
         }
         return direction;
+    }
+
+    private String directionText(int direction) {
+        return direction == DIRECTION_TURPAN ? "吐鲁番方向" : "哈密方向";
     }
 
     /**

@@ -17,6 +17,10 @@ import com.wut.screenwebsx.Service.DataPreSubService.PostureDataPreService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -33,6 +37,7 @@ public class PostureWebService {
     private final SecInfoService secInfoService;
     private final OriginalDataService originalDataService;
     private final CarEventService carEventService;
+    private final WindDataService windDataService;
     private static final double KR = 3200;   // 调节参数，单位：辆每小时
     private static final double O = 0.3;    // 下游期望占有率
     private static final int T = 60;        // 匝道控制周期，单位秒
@@ -41,7 +46,7 @@ public class PostureWebService {
     private static LimitSpeedResp limitSpeedResp = null;
 
     @Autowired
-    public PostureWebService(PostureDataPreService postureDataPreService, TrajService trajService, BottleneckAreaStateService bottleneckAreaStateService, ParametersService parametersService, SecInfoService secInfoService, OriginalDataService originalDataService, CarEventService carEventService) {
+    public PostureWebService(PostureDataPreService postureDataPreService, TrajService trajService, BottleneckAreaStateService bottleneckAreaStateService, ParametersService parametersService, SecInfoService secInfoService, OriginalDataService originalDataService, CarEventService carEventService, WindDataService windDataService) {
         this.postureDataPreService = postureDataPreService;
         this.trajService = trajService;
         this.bottleneckAreaStateService = bottleneckAreaStateService;
@@ -49,6 +54,7 @@ public class PostureWebService {
         this.secInfoService = secInfoService;
         this.originalDataService = originalDataService;
         this.carEventService = carEventService;
+        this.windDataService = windDataService;
     }
 
     @Docking
@@ -56,8 +62,67 @@ public class PostureWebService {
         PostureStatisticData statisticData = ModelTransformUtil.getPostureStatisticInstance();
         List<PostureFlowTypeData> flowTypeList = postureDataPreService.initFlowTypeDataList();
         recordInTransitTrajectoryToStatisticData(timestamp, statisticData);
+        Double averageSpeed = calculateAverageSpeed(statisticData);
+        Integer maxWindLevel = resolveMaxWindLevel(timestamp);
 //            recordPostureToFlowType(flowTypeList, DataParamParseUtil.parsePostureComp(posture.getComp()));
-        return new PostureRealTimeDataResp(statisticData, flowTypeList);
+        return new PostureRealTimeDataResp(
+                statisticData,
+                flowTypeList,
+                averageSpeed,
+                maxWindLevel,
+                maxWindLevel == null ? "" : maxWindLevel + "级"
+        );
+    }
+
+    private Double calculateAverageSpeed(PostureStatisticData statisticData) {
+        if (statisticData == null) {
+            return 0D;
+        }
+        double sum = 0D;
+        int count = 0;
+        if (statisticData.getSpeedToWH() != null && statisticData.getSpeedToWH() > 0D) {
+            sum += statisticData.getSpeedToWH();
+            count++;
+        }
+        if (statisticData.getSpeedToEZ() != null && statisticData.getSpeedToEZ() > 0D) {
+            sum += statisticData.getSpeedToEZ();
+            count++;
+        }
+        return count == 0 ? 0D : DataParamParseUtil.getRoundValue(sum / count);
+    }
+
+    private Integer resolveMaxWindLevel(long timestamp) {
+        LocalDateTime queryTime = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()).toLocalDateTime();
+        List<WindData> rows = windDataService.listLatestSnapshot(queryTime);
+        Integer maxWindLevel = null;
+        for (WindData row : rows) {
+            Integer windLevel = toWindLevel(row.getWindSpeed());
+            if (windLevel == null) {
+                continue;
+            }
+            maxWindLevel = maxWindLevel == null ? windLevel : Math.max(maxWindLevel, windLevel);
+        }
+        return maxWindLevel;
+    }
+
+    private Integer toWindLevel(BigDecimal windSpeed) {
+        if (windSpeed == null) {
+            return null;
+        }
+        double v = windSpeed.doubleValue();
+        if (v >= 32.7D) return 12;
+        if (v >= 28.5D) return 11;
+        if (v >= 24.5D) return 10;
+        if (v >= 20.8D) return 9;
+        if (v >= 17.2D) return 8;
+        if (v >= 13.9D) return 7;
+        if (v >= 10.8D) return 6;
+        if (v >= 8.0D) return 5;
+        if (v >= 5.5D) return 4;
+        if (v >= 3.4D) return 3;
+        if (v >= 1.6D) return 2;
+        if (v >= 0.3D) return 1;
+        return 1;
     }
 
     private void recordInTransitTrajectoryToStatisticData(long timestamp, PostureStatisticData statisticData) {

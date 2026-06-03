@@ -1014,7 +1014,7 @@ public class WindControlExecutionService {
         plan.put("forecastMaxWindSpeed2hMs", null);
         plan.put("realtimeWindLevel", 7);
         plan.put("forecastMaxWindLevel", 7);
-        plan.put("decisionSource", "DEFAULT_GREEN");
+        plan.put("decisionSource", "DEFAULT_NORMAL");
         plan.put("recommendedControlLevel", defaultLevel);
         plan.put("recommendedControlLevelText", levelToText(defaultLevel));
         plan.put("currentControlLevel", defaultLevel);
@@ -1115,6 +1115,21 @@ public class WindControlExecutionService {
         table.put("upstreamExitControl", upstreamExitControl);
         table.put("upstreamTollgateControl", upstreamTollgateControl);
         List<Map<String, Object>> vmsFacilityItems = normalizeVmsPublishItems(plan.get("vmsPublishItems"));
+        List<Map<String, Object>> publishRows = buildExecutionPublishRows(
+                vmsFacilityItems,
+                vmsInsideSegment,
+                vmsUpstreamExit,
+                vmsUpstreamTollgate,
+                vmsUpstreamServiceArea,
+                upstreamExitControl,
+                upstreamTollgateControl
+        );
+        table.put("publishRows", publishRows);
+        table.put("vmsPublishRows", filterVmsPublishRows(publishRows));
+        table.put("vmsInsideSegmentDeviceId", resolveFirstDeviceIdBySegment(vmsFacilityItems, "区段"));
+        table.put("vmsUpstreamExitDeviceId", resolveFirstDeviceIdBySegment(vmsFacilityItems, "出口"));
+        table.put("vmsUpstreamTollgateDeviceId", resolveFirstDeviceIdBySegment(vmsFacilityItems, "入口", "收费站"));
+        table.put("vmsUpstreamServiceAreaDeviceId", resolveFirstDeviceIdBySegment(vmsFacilityItems, "服务区"));
         List<Map<String, Object>> allDevicePublishRows = buildAllDevicePublishInfoRows(
                 stateService.intValue(table.get("direction"), DIRECTION_HAMI),
                 stateService.stringValue(table.get("segmentText")),
@@ -1211,6 +1226,19 @@ public class WindControlExecutionService {
         row.put("deviceId", deviceId == null ? "" : deviceId);
         row.put("content", content == null ? "" : content);
         return row;
+    }
+
+    private List<Map<String, Object>> filterVmsPublishRows(List<Map<String, Object>> publishRows) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        if (publishRows == null) {
+            return rows;
+        }
+        for (Map<String, Object> row : publishRows) {
+            if ("VMS".equalsIgnoreCase(stateService.stringValue(row.get("itemType")))) {
+                rows.add(new LinkedHashMap<>(row));
+            }
+        }
+        return rows;
     }
 
     /**
@@ -1496,7 +1524,7 @@ public class WindControlExecutionService {
             case 2 -> "橙色警戒";
             case 3 -> "黄色警戒";
             case 4 -> "蓝色警戒";
-            case 5 -> "绿色警戒";
+            case 5 -> "正常通行";
             default -> "未知";
         };
     }

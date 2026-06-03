@@ -855,7 +855,7 @@ public class WindControlStateService {
 
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("level", level);
-            row.put("levelName", stringValue(plan.getControlLevelName()));
+            row.put("levelName", normalizeControlLevelName(plan.getControlLevelName()));
             row.put("windLevelDesc", stringValue(plan.getWindLevelDesc()));
             row.put("minWindLevel", minWind);
             row.put("maxWindLevel", maxWind);
@@ -962,7 +962,7 @@ public class WindControlStateService {
         int freight = intValue(threshold.getHeavyVehicleSpeedLimit(), defaultFreightLimitByLevel(controlLevel));
         row.put("windLevel", windLevel);
         row.put("controlLevel", controlLevel > 0 ? controlLevel : mapWindToControlLevel(windLevel));
-        row.put("controlLevelName", stringValue(threshold.getControlLevelName()));
+        row.put("controlLevelName", normalizeControlLevelName(threshold.getControlLevelName()));
         row.put("windLevelDesc", stringValue(threshold.getWindLevelDesc()));
         row.put("passengerSpeedLimit", passenger);
         row.put("freightSpeedLimit", freight);
@@ -1042,7 +1042,7 @@ public class WindControlStateService {
     }
 
     /**
-     * 解析“一级/二级/三级/四级/五级/红橙黄蓝绿警戒/数字”到等级数值。
+     * 解析“一级/二级/三级/四级/五级/红橙黄蓝绿警戒/正常通行/数字”到等级数值。
      */
     private int parseControlLevelName(String controlLevelName, int defaultValue) {
         if (controlLevelName == null || controlLevelName.isBlank()) {
@@ -1061,7 +1061,7 @@ public class WindControlStateService {
         if (text.contains("蓝色警戒")) {
             return 4;
         }
-        if (text.contains("绿色警戒")) {
+        if (text.contains("绿色警戒") || text.contains("正常通行")) {
             return 5;
         }
         if (text.contains("一级")) {
@@ -1092,6 +1092,11 @@ public class WindControlStateService {
             }
         }
         return defaultValue;
+    }
+
+    private String normalizeControlLevelName(String controlLevelName) {
+        String text = stringValue(controlLevelName);
+        return "绿色警戒".equals(text) ? "正常通行" : text;
     }
 
     /**
@@ -1190,7 +1195,7 @@ public class WindControlStateService {
             case 2 -> "橙色警戒";
             case 3 -> "黄色警戒";
             case 4 -> "蓝色警戒";
-            case 5 -> "绿色警戒";
+            case 5 -> "正常通行";
             default -> "未知";
         };
     }

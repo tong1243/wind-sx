@@ -771,7 +771,7 @@ public class ControlModuleService {
         if (windLevel >= 7) {
             return "蓝色警戒";
         }
-        return "绿色警戒";
+        return "正常通行";
     }
 
     private double levelToWindSpeed(int windLevel) {
@@ -844,8 +844,8 @@ public class ControlModuleService {
             case "红色警戒" -> "橙色警戒";
             case "橙色警戒" -> "黄色警戒";
             case "黄色警戒" -> "蓝色警戒";
-            case "蓝色警戒" -> "绿色警戒";
-            default -> "绿色警戒";
+            case "蓝色警戒" -> "正常通行";
+            default -> "正常通行";
         };
     }
 
@@ -978,7 +978,7 @@ public class ControlModuleService {
         if (!windThresholdRules.isEmpty()) {
             return;
         }
-        windThresholdRules.add(new WindThresholdRule("绿色警戒", "7级以下", 120, 80));
+        windThresholdRules.add(new WindThresholdRule("正常通行", "7级以下", 120, 80));
         windThresholdRules.add(new WindThresholdRule("蓝色警戒", "7-8级", 80, 60));
         windThresholdRules.add(new WindThresholdRule("黄色警戒", "9-10级", 60, 40));
         windThresholdRules.add(new WindThresholdRule("橙色警戒", "11级", 60, 0));
@@ -1045,7 +1045,7 @@ public class ControlModuleService {
             return;
         }
         planLibraryRecords.add(row(
-                "controlLevel", "绿色警戒",
+                "controlLevel", "正常通行",
                 "windLevel", "7级以下",
                 "innerSegmentPlan", "小客车限速120km/h，客货车限速80km/h",
                 "upstreamExitPlan", "所有车辆正常通行",
