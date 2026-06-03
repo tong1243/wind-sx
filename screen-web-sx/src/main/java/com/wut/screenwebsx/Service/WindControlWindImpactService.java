@@ -56,6 +56,12 @@ public class WindControlWindImpactService {
             "K3192-K3197",
             "K3197-K3204"
     );
+    private static final String SAME_RISK_PLACEHOLDER = "\u540c\u98ce\u9669\u533a\u6bb5\u5185\u65b9\u6848";
+    private static final String KW_SECTION = "\u533a\u6bb5";
+    private static final String KW_EXIT = "\u51fa\u53e3";
+    private static final String KW_ENTRY = "\u5165\u53e3";
+    private static final String KW_TOLLGATE = "\u6536\u8d39\u7ad9";
+    private static final String KW_SERVICE_AREA = "\u670d\u52a1\u533a";
 
     /** 桩号提取规则，支持 K3191 与 K3191+800。 */
     private static final Pattern STAKE_PATTERN = Pattern.compile("K(\\d+(?:\\+\\d+)?)", Pattern.CASE_INSENSITIVE);
@@ -225,6 +231,16 @@ public class WindControlWindImpactService {
             int controlLevel = resolveFinalControlLevel(latestRows, future2hRows, rowDirection, displayStartStake + "-" + displayEndStake);
             row.put("controlLevel", controlLevel);
             row.put("controlLevelText", levelName(controlLevel));
+            List<Map<String, Object>> vmsData = buildControlIntervalVmsData(
+                    rowDirection,
+                    controlInterval,
+                    displayStartStake,
+                    displayEndStake,
+                    controlLevel
+            );
+            if (!vmsData.isEmpty()) {
+                row.put("data", vmsData);
+            }
             rows.add(row);
         }
 
@@ -236,6 +252,157 @@ public class WindControlWindImpactService {
         data.put("timestamp", effectiveTimestamp);
         data.put("records", rows);
         return data;
+    }
+
+    private List<Map<String, Object>> buildControlIntervalVmsData(int direction,
+                                                                  String controlInterval,
+                                                                  String startStake,
+                                                                  String endStake,
+                                                                  int controlLevel) {
+        Map<String, Object> template = stateService.getControlPlanLibrary().get(controlLevel);
+        if (template == null || template.isEmpty()) {
+            return List.of();
+        }
+
+        String vmsInsideSegment = materializePlanText(
+                stateService.stringValue(template.get("riskSectionPlan")),
+                stateService.stringValue(template.get("riskSectionPlan"))
+        );
+        String vmsUpstreamExit = materializePlanText(
+                stateService.stringValue(template.get("upstreamExitPlan")),
+                vmsInsideSegment
+        );
+        String vmsUpstreamTollgate = materializePlanText(
+                stateService.stringValue(template.get("upstreamEntryPlan")),
+                vmsInsideSegment
+        );
+        String vmsUpstreamServiceArea = materializePlanText(
+                stateService.stringValue(template.get("upstreamServiceAreaPlan")),
+                vmsInsideSegment
+        );
+        if (vmsInsideSegment.isBlank()
+                && vmsUpstreamExit.isBlank()
+                && vmsUpstreamTollgate.isBlank()
+                && vmsUpstreamServiceArea.isBlank()) {
+            return List.of();
+        }
+
+        Map<String, Object> interval = findControlIntervalContext(controlInterval, direction, startStake, endStake);
+        String nearestInterchangeStake = normalizeStakeForMatch(stateService.stringValue(interval.get("nearestInterchangeStake")));
+        double[] intervalRange = parseRange(startStake + "-" + endStake);
+        List<Map<String, Object>> rows = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+
+        for (Map<String, Object> facility : stateService.getPublishFacilities()) {
+            int facilityDirection = stateService.intValue(facility.get("direction"), -1);
+            if (facilityDirection != direction) {
+                continue;
+            }
+            String pileNo = normalizeStakeText(stateService.stringValue(facility.get("pileNo")));
+            String facilitySegment = stateService.stringValue(facility.get("segment"));
+            String facilityInterchangeStake = normalizeStakeForMatch(stateService.stringValue(facility.get("interchangeStake")));
+            String normalizedPileNo = normalizeStakeForMatch(pileNo);
+
+            boolean inNearestInterchange = !nearestInterchangeStake.isBlank()
+                    && (nearestInterchangeStake.equalsIgnoreCase(facilityInterchangeStake)
+                    || nearestInterchangeStake.equalsIgnoreCase(normalizedPileNo));
+            boolean inIntervalRange = isStakeInRange(pileNo, intervalRange);
+            boolean inServiceArea = facilitySegment.contains(KW_SERVICE_AREA);
+
+            String content = "";
+            if (inNearestInterchange) {
+                content = resolveInterchangeVmsContent(
+                        facilitySegment,
+                        vmsInsideSegment,
+                        vmsUpstreamExit,
+                        vmsUpstreamTollgate
+                );
+            } else if (inIntervalRange && facilitySegment.contains(KW_SECTION)) {
+                content = vmsInsideSegment;
+            } else if (inServiceArea) {
+                content = vmsUpstreamServiceArea;
+            }
+
+            if (content == null || content.isBlank() || pileNo.isBlank()) {
+                continue;
+            }
+            String dedupeKey = pileNo + "|" + content;
+            if (!seen.add(dedupeKey)) {
+                continue;
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("stake", pileNo);
+            row.put("content", content);
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    private String resolveInterchangeVmsContent(String facilitySegment,
+                                                String vmsInsideSegment,
+                                                String vmsUpstreamExit,
+                                                String vmsUpstreamTollgate) {
+        if (facilitySegment.contains(KW_ENTRY) || facilitySegment.contains(KW_TOLLGATE)) {
+            return vmsUpstreamTollgate;
+        }
+        if (facilitySegment.contains(KW_EXIT)) {
+            return vmsUpstreamExit;
+        }
+        if (facilitySegment.contains(KW_SECTION)) {
+            return vmsInsideSegment;
+        }
+        return vmsUpstreamExit;
+    }
+
+    private Map<String, Object> findControlIntervalContext(String controlInterval,
+                                                           int direction,
+                                                           String startStake,
+                                                           String endStake) {
+        double[] targetRange = parseRange(startStake + "-" + endStake);
+        for (Map<String, Object> interval : stateService.getDispatchPlanLibrary().values()) {
+            if (direction != stateService.intValue(interval.get("direction"), direction)) {
+                continue;
+            }
+            String intervalName = stateService.stringValue(interval.get("intervalName"));
+            String segment = stateService.stringValue(interval.get("segment"));
+            if (!controlInterval.isBlank()
+                    && (controlInterval.equals(intervalName) || controlInterval.equals(segment))) {
+                return interval;
+            }
+            String intervalStart = stateService.stringValue(interval.get("startStake"));
+            String intervalEnd = stateService.stringValue(interval.get("endStake"));
+            double[] intervalRange = parseRange(intervalStart + "-" + intervalEnd);
+            if (targetRange != null && intervalRange != null
+                    && targetRange[0] == intervalRange[0]
+                    && targetRange[1] == intervalRange[1]) {
+                return interval;
+            }
+        }
+        return Map.of();
+    }
+
+    private boolean isStakeInRange(String stake, double[] range) {
+        if (stake == null || stake.isBlank() || range == null) {
+            return false;
+        }
+        Double value = stateService.parseStakeValue(stake);
+        return value != null && value >= range[0] && value <= range[1];
+    }
+
+    private String normalizeStakeForMatch(String stake) {
+        return stake == null ? "" : stake.replace(" ", "").toUpperCase(Locale.ROOT);
+    }
+
+    private String materializePlanText(String rawText, String riskSectionPlan) {
+        String raw = rawText == null ? "" : rawText.trim();
+        if (raw.isBlank()) {
+            return raw;
+        }
+        String riskText = riskSectionPlan == null ? "" : riskSectionPlan.trim();
+        if (raw.contains(SAME_RISK_PLACEHOLDER) && !riskText.isBlank()) {
+            return raw.replace(SAME_RISK_PLACEHOLDER, riskText);
+        }
+        return raw;
     }
 
     /**
