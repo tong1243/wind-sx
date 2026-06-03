@@ -58,10 +58,11 @@ public class WindImpactController {
      * @return 管控区间下发桩号列表
      */
     @GetMapping("/wind-control-intervals")
-    public DefaultDataResp listWindControlIntervals(@RequestParam(value = "direction", required = false) Integer direction) {
+    public DefaultDataResp listWindControlIntervals(@RequestParam(value = "direction", required = false) Integer direction,
+                                                    @RequestParam(value = "timestamp", required = false) Long timestamp) {
         return ModelTransformUtil.getDefaultDataInstance(
                 "wind control intervals",
-                windImpactService.listControlIntervalSendRanges(direction)
+                windImpactService.listControlIntervalSendRanges(direction, timestamp)
         );
     }
 

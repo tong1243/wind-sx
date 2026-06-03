@@ -162,7 +162,15 @@ public class WindControlWindImpactService {
      * @return 管控区间下发桩号数据
      */
     public Map<String, Object> listControlIntervalSendRanges(Integer direction) {
+        return listControlIntervalSendRanges(direction, null);
+    }
+
+    public Map<String, Object> listControlIntervalSendRanges(Integer direction, Long timestamp) {
         Integer normalizedDirection = direction == null ? null : normalizeDirection(direction);
+        long effectiveTimestamp = timestamp == null ? System.currentTimeMillis() : timestamp;
+        LocalDateTime now = toLocalDateTime(effectiveTimestamp);
+        List<WindData> latestRows = windDataService.listLatestSnapshot(now);
+        List<WindData> future2hRows = windDataService.listByTimeRange(now, toLocalDateTime(effectiveTimestamp + WINDOW_2H_MS));
         Map<String, List<Map<String, Object>>> grouped = new LinkedHashMap<>();
         for (Map<String, Object> section : stateService.getFullLineWindSections()) {
             int sectionDirection = stateService.intValue(section.get("direction"), DIRECTION_HAMI);
@@ -187,7 +195,6 @@ public class WindControlWindImpactService {
             }
             int rowDirection = stateService.intValue(sections.get(0).get("direction"), DIRECTION_HAMI);
             String controlInterval = stateService.stringValue(sections.get(0).get("controlInterval"));
-            List<String> sendStakeList = new ArrayList<>();
             String displayStartStake = "";
             String displayEndStake = "";
             String sendStartStake = "";
@@ -207,7 +214,6 @@ public class WindControlWindImpactService {
                     sendStartStake = endStake;
                 }
                 sendEndStake = endStake;
-                sendStakeList.add(endStake);
             }
 
             if (displayStartStake.isBlank() || displayEndStake.isBlank() || sendStartStake.isBlank() || sendEndStake.isBlank()) {
@@ -215,29 +221,19 @@ public class WindControlWindImpactService {
             }
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("controlInterval", controlInterval);
-            row.put("direction", rowDirection);
-            row.put("directionText", directionText(rowDirection));
-            row.put("displayStartStake", displayStartStake);
-            row.put("displayEndStake", displayEndStake);
-            row.put("displayStakeRange", displayStartStake + "-" + displayEndStake);
-            row.put("sendStartStake", sendStartStake);
-            row.put("sendEndStake", sendEndStake);
             row.put("sendStakeRange", sendStartStake + "-" + sendEndStake);
-            row.put("sendStakeList", sendStakeList);
-            row.put("segmentCount", sendStakeList.size());
+            int controlLevel = resolveFinalControlLevel(latestRows, future2hRows, rowDirection, displayStartStake + "-" + displayEndStake);
+            row.put("controlLevel", controlLevel);
+            row.put("controlLevelText", levelName(controlLevel));
             rows.add(row);
         }
 
         rows.sort((a, b) -> {
-            int d = Integer.compare(stateService.intValue(a.get("direction"), 0), stateService.intValue(b.get("direction"), 0));
-            if (d != 0) {
-                return d;
-            }
             return stateService.stringValue(a.get("controlInterval")).compareTo(stateService.stringValue(b.get("controlInterval")));
         });
 
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("direction", normalizedDirection);
+        data.put("timestamp", effectiveTimestamp);
         data.put("records", rows);
         return data;
     }
@@ -919,6 +915,24 @@ public class WindControlWindImpactService {
     /**
      * 从未来窗口中解析最接近 targetTime 的预测风级（用于 forecast 模式）。
      */
+    private int resolveFinalControlLevel(List<WindData> latestRows,
+                                         List<WindData> future2hRows,
+                                         int direction,
+                                         String targetStakeRange) {
+        Integer realWindLevel = resolveMaxWindLevelFromRows(latestRows, targetStakeRange, direction);
+        Integer futureWindLevel = resolveMaxWindLevelFromRows(future2hRows, targetStakeRange, direction);
+        Integer finalWindLevel = null;
+        if (realWindLevel != null) {
+            finalWindLevel = realWindLevel;
+        }
+        if (futureWindLevel != null && (finalWindLevel == null || futureWindLevel > finalWindLevel)) {
+            finalWindLevel = futureWindLevel;
+        }
+        return finalWindLevel == null
+                ? stateService.getDefaultControlLevel()
+                : stateService.mapWindToControlLevel(finalWindLevel);
+    }
+
     private Integer resolveForecastWindLevelFromRows(List<WindData> rows,
                                                      String targetStakeRange,
                                                      int direction,
