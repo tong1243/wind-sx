@@ -88,6 +88,8 @@ public class SecurityConfig {
             "/api/v1/wind-risk-speed/**",
             "/api/v1/wind-risk-sections/**",
             "/api/v1/wind-speed-limits/**",
+            "/api/v1/wind-control-intervals",
+            "/api/v1/wind-control-intervals/**",
             "/api/wind-risk-speed/**",
             "/api/wind-risk-sections/**",
             "/api/wind-speed-limits/**",
