@@ -30,6 +30,8 @@ import static com.wut.screencommonsx.Static.WebModuleStatic.*;
 public class PostureWebService {
     private static final int DIRECTION_TO_WH = 1;
     private static final int DIRECTION_TO_EZ = 2;
+    private static final double MAINLINE_WIND_START_STAKE = 3178D;
+    private static final double MAINLINE_WIND_END_STAKE = 3204D;
     private final PostureDataPreService postureDataPreService;
     private final TrajService trajService;
     private final BottleneckAreaStateService bottleneckAreaStateService;
@@ -94,15 +96,43 @@ public class PostureWebService {
     private Integer resolveMaxWindLevel(long timestamp) {
         LocalDateTime queryTime = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()).toLocalDateTime();
         List<WindData> rows = windDataService.listLatestSnapshot(queryTime);
-        Integer maxWindLevel = null;
-        for (WindData row : rows) {
-            Integer windLevel = toWindLevel(row.getWindSpeed());
-            if (windLevel == null) {
-                continue;
-            }
-            maxWindLevel = maxWindLevel == null ? windLevel : Math.max(maxWindLevel, windLevel);
+        BigDecimal maxWindSpeed = rows.stream()
+                .filter(this::isMainlineWindRow)
+                .map(WindData::getWindSpeed)
+                .filter(Objects::nonNull)
+                .max(BigDecimal::compareTo)
+                .orElse(null);
+        return toWindLevel(maxWindSpeed);
+    }
+
+    private boolean isMainlineWindRow(WindData row) {
+        if (row == null) {
+            return false;
         }
-        return maxWindLevel;
+        Double start = parseStakeValue(row.getStartStake());
+        Double end = parseStakeValue(row.getEndStake());
+        if (start == null && end == null) {
+            return false;
+        }
+        double segmentStart = start == null ? end : Math.min(start, end);
+        double segmentEnd = end == null ? start : Math.max(start, end);
+        return segmentEnd > MAINLINE_WIND_START_STAKE && segmentStart < MAINLINE_WIND_END_STAKE;
+    }
+
+    private Double parseStakeValue(String stake) {
+        if (stake == null || stake.isBlank()) {
+            return null;
+        }
+        String value = stake.trim().toUpperCase(Locale.ROOT).replace("K", "");
+        try {
+            if (value.contains("+")) {
+                String[] parts = value.split("\\+");
+                return Double.parseDouble(parts[0]) + Double.parseDouble(parts[1]) / 1000D;
+            }
+            return Double.parseDouble(value);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     private Integer toWindLevel(BigDecimal windSpeed) {

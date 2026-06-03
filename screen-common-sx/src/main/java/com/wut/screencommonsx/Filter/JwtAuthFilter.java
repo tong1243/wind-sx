@@ -33,6 +33,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             "/api/v1/operation-maintenance/**",
 
             "/api/v1/road-statuses",
+            "/api/v1/posture/data/real",
             "/api/v1/section-parameter-detections",
             "/api/v1/event-detections",
             "/api/v1/service-areas",
