@@ -1430,14 +1430,13 @@ public class WindControlExecutionService {
      * 大屏图三：事件报告表格（按发生时间倒序，默认20条）。
      */
     public List<Map<String, Object>> listEventReportTableRows(Integer limit) {
-        List<Map<String, Object>> records = listWindEventRecords(
-                null, null, null, null, null, null, null, null, null, null, limit
-        );
+        autoCloseExpiredPublishedPlans();
         List<Map<String, Object>> rows = new ArrayList<>();
-        for (Map<String, Object> record : records) {
+        for (Map<String, Object> source : stateService.getWindEventRecords()) {
+            Map<String, Object> record = toWindEventViewRow(source);
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("eventId", stateService.stringValue(record.get("eventId")));
-            row.put("eventLocation", stateService.stringValue(record.get("incidentLocation")));
+            row.put("eventLocation", resolveEventReportStakeLocation(source, record));
             row.put("windSpeedScale", stateService.stringValue(record.get("windSpeedScale")));
             row.put("direction", stateService.intValue(record.get("direction"), DIRECTION_HAMI));
             row.put("directionText", directionToText(stateService.intValue(record.get("direction"), DIRECTION_HAMI)));
@@ -1448,7 +1447,70 @@ public class WindControlExecutionService {
             row.put("onDutyPersonnel", stateService.stringValue(record.get("onDutyPersonnel")));
             rows.add(row);
         }
+        rows.sort((a, b) -> {
+            LocalDateTime at = parseDateTime(stateService.stringValue(a.get("startTime")));
+            LocalDateTime bt = parseDateTime(stateService.stringValue(b.get("startTime")));
+            if (at == null && bt == null) {
+                return 0;
+            }
+            if (at == null) {
+                return 1;
+            }
+            if (bt == null) {
+                return -1;
+            }
+            return bt.compareTo(at);
+        });
+        int finalLimit = normalizeLimit(limit);
+        if (rows.size() > finalLimit) {
+            return new ArrayList<>(rows.subList(0, finalLimit));
+        }
         return rows;
+    }
+
+    private String resolveEventReportStakeLocation(Map<String, Object> source, Map<String, Object> viewRow) {
+        String fromStakeFields = buildEventLocation(
+                stateService.stringValue(source.get("startStake")),
+                stateService.stringValue(source.get("endStake"))
+        );
+        if (containsStake(fromStakeFields)) {
+            return fromStakeFields;
+        }
+        String fromExistingLocation = extractStakeRangeText(stateService.stringValue(viewRow.get("incidentLocation")));
+        if (!fromExistingLocation.isBlank()) {
+            return fromExistingLocation;
+        }
+        String fromControlPerimeter = extractStakeRangeText(stateService.stringValue(viewRow.get("controlPerimeter")));
+        if (!fromControlPerimeter.isBlank()) {
+            return fromControlPerimeter;
+        }
+        String fromSegment = extractStakeRangeText(stateService.stringValue(viewRow.get("segment")));
+        if (!fromSegment.isBlank()) {
+            return fromSegment;
+        }
+        return stateService.stringValue(viewRow.get("incidentLocation"));
+    }
+
+    private boolean containsStake(String text) {
+        return text != null && stakePattern.matcher(text).find();
+    }
+
+    private String extractStakeRangeText(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        Matcher matcher = stakePattern.matcher(text);
+        List<String> stakes = new ArrayList<>();
+        while (matcher.find()) {
+            stakes.add("K" + matcher.group(1));
+        }
+        if (stakes.isEmpty()) {
+            return "";
+        }
+        if (stakes.size() == 1) {
+            return stakes.get(0);
+        }
+        return stakes.get(0) + "-" + stakes.get(stakes.size() - 1);
     }
 
     private String[] parseIncidentLocationRange(String incidentLocation) {

@@ -25,6 +25,10 @@ import java.util.regex.Pattern;
 public class WindControlRoadStatusService {
     private static final Pattern SEGMENT_STAKE_PATTERN =
             Pattern.compile("(?i)k(\\d+)(?:\\+\\d+)?\\s*-\\s*k(\\d+)(?:\\+\\d+)?");
+    private static final String INTERCHANGE_EVENT_SEGMENT_FORWARD = "K3198-K3199";
+    private static final String INTERCHANGE_EVENT_SEGMENT_REVERSE = "K3199-K3198";
+    private static final String SERVICE_AREA_HONGSHANKOU_NORTH = "红山口服务区北";
+    private static final String SERVICE_AREA_HONGSHANKOU_SOUTH = "红山口服务区南";
 
     private static final String TRAFFIC_SEGMENT_1 = "K3178-红山口服务区";
     private static final String TRAFFIC_SEGMENT_2 = "红山口服务区-红山口互通";
@@ -213,7 +217,7 @@ public class WindControlRoadStatusService {
         }
         for (Map<String, Object> row : rows) {
             Map<String, Object> item = new LinkedHashMap<>();
-            item.put("serviceArea", pickText(row, "serviceArea", "segment", "segmentName"));
+            item.put("serviceArea", toServiceAreaLocationName(row));
             item.put("timestamp", longValue(row.get("timestamp"), timestamp));
             item.put("inboundVehicle", Math.max(0, stateService.intValue(row.get("inboundVehicle"), 0)));
             item.put("outboundVehicle", Math.max(0, stateService.intValue(row.get("outboundVehicle"), 0)));
@@ -221,6 +225,24 @@ public class WindControlRoadStatusService {
             normalized.add(item);
         }
         return normalized;
+    }
+
+    private String toServiceAreaLocationName(Map<String, Object> row) {
+        String serviceArea = pickText(row, "serviceArea", "segment", "segmentName");
+        if (serviceArea.contains("北")) {
+            return SERVICE_AREA_HONGSHANKOU_NORTH;
+        }
+        if (serviceArea.contains("南")) {
+            return SERVICE_AREA_HONGSHANKOU_SOUTH;
+        }
+        int direction = stateService.intValue(row.get("direction"), 0);
+        if (direction == 1) {
+            return SERVICE_AREA_HONGSHANKOU_SOUTH;
+        }
+        if (direction == 2) {
+            return SERVICE_AREA_HONGSHANKOU_NORTH;
+        }
+        return serviceArea.isBlank() ? SERVICE_AREA_HONGSHANKOU_NORTH : serviceArea;
     }
 
     private List<Map<String, Object>> normalizeTrafficStateRows(List<Map<String, Object>> rows) {
@@ -334,6 +356,10 @@ public class WindControlRoadStatusService {
         }
         int seq = 1;
         for (Map<String, Object> row : rows) {
+            String segment = toPureStakeRangeText(pickText(row, "segment", "segmentName"));
+            if (!isInterchangeEventSegment(segment)) {
+                continue;
+            }
             String eventId = valueOf(row.get("eventId"));
             if (eventId.isBlank()) {
                 eventId = "DET-" + (timestamp % 100000) + "-" + seq;
@@ -343,7 +369,7 @@ public class WindControlRoadStatusService {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("eventId", eventId);
             item.put("eventType", defaultIfBlank(valueOf(row.get("eventType")), "OVERSPEED"));
-            item.put("segment", toPureStakeRangeText(pickText(row, "segment", "segmentName")));
+            item.put("segment", segment);
             item.put("vehiclePlate", defaultIfBlank(valueOf(row.get("vehiclePlate")), "UNKNOWN"));
             item.put("thresholdSpeedKmPerHour", Math.max(0, stateService.intValue(row.get("thresholdSpeedKmPerHour"), 0)));
             item.put("status", defaultIfBlank(valueOf(row.get("status")), "UNPROCESSED"));
@@ -351,6 +377,11 @@ public class WindControlRoadStatusService {
             normalized.add(item);
         }
         return normalized;
+    }
+
+    private boolean isInterchangeEventSegment(String segment) {
+        return INTERCHANGE_EVENT_SEGMENT_FORWARD.equals(segment)
+                || INTERCHANGE_EVENT_SEGMENT_REVERSE.equals(segment);
     }
 
     private void persistDetectionEvents(List<Map<String, Object>> rows, long timestamp) {

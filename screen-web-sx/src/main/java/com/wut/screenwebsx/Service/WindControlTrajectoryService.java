@@ -181,6 +181,7 @@ public class WindControlTrajectoryService {
             int inside = metric == null ? 0 : metric.insideVehicleSet.size();
             rows.add(stateService.row(
                     "serviceArea", ctx.segmentName,
+                    "direction", ctx.direction,
                     "timestamp", timestamp,
                     "inboundVehicle", in,
                     "outboundVehicle", out,
