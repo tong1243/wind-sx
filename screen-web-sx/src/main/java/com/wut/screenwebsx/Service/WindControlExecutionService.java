@@ -781,6 +781,7 @@ public class WindControlExecutionService {
         row.put("direction", stateService.intValue(source.get("direction"), DIRECTION_HAMI));
         row.put("directionText", directionToText(stateService.intValue(source.get("direction"), DIRECTION_HAMI)));
         row.put("controlLevel", stateService.intValue(source.get("controlLevel"), stateService.getDefaultControlLevel()));
+        row.put("incidentLocation", resolveWindEventStakeLocation(source, row));
         return row;
     }
 
@@ -1436,7 +1437,7 @@ public class WindControlExecutionService {
             Map<String, Object> record = toWindEventViewRow(source);
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("eventId", stateService.stringValue(record.get("eventId")));
-            row.put("eventLocation", resolveEventReportStakeLocation(source, record));
+            row.put("eventLocation", resolveWindEventStakeLocation(source, record));
             row.put("windSpeedScale", stateService.stringValue(record.get("windSpeedScale")));
             row.put("direction", stateService.intValue(record.get("direction"), DIRECTION_HAMI));
             row.put("directionText", directionToText(stateService.intValue(record.get("direction"), DIRECTION_HAMI)));
@@ -1468,7 +1469,7 @@ public class WindControlExecutionService {
         return rows;
     }
 
-    private String resolveEventReportStakeLocation(Map<String, Object> source, Map<String, Object> viewRow) {
+    private String resolveWindEventStakeLocation(Map<String, Object> source, Map<String, Object> viewRow) {
         String fromStakeFields = buildEventLocation(
                 stateService.stringValue(source.get("startStake")),
                 stateService.stringValue(source.get("endStake"))
