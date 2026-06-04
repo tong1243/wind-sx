@@ -64,32 +64,32 @@ public class WindControlWindImpactService {
     private static final String VMS_LINE_T = "T";
     private static final String VMS_LINE_H = "H";
     private static final List<VmsDevice> VMS_DEVICES = List.of(
-            new VmsDevice(VMS_LINE_T, "K3282+300", VMS_UPSTREAM_TOLLGATE),
-            new VmsDevice(VMS_LINE_T, "K3281+370", VMS_UPSTREAM_EXIT),
-            new VmsDevice(VMS_LINE_T, "K3263+200", VMS_INSIDE_SEGMENT),
-            new VmsDevice(VMS_LINE_T, "K3243+100", VMS_UPSTREAM_SERVICE_AREA),
-            new VmsDevice(VMS_LINE_T, "K3234+000", VMS_INSIDE_SEGMENT),
-            new VmsDevice(VMS_LINE_T, "K3198+000", VMS_UPSTREAM_TOLLGATE),
-            new VmsDevice(VMS_LINE_T, "K3196+450", VMS_UPSTREAM_EXIT),
-            new VmsDevice(VMS_LINE_T, "K3191+800", VMS_UPSTREAM_SERVICE_AREA),
-            new VmsDevice(VMS_LINE_T, "K3180+000", VMS_INSIDE_SEGMENT),
-            new VmsDevice(VMS_LINE_T, "K3150+000", VMS_UPSTREAM_SERVICE_AREA),
-            new VmsDevice(VMS_LINE_T, "K3134+000", VMS_INSIDE_SEGMENT),
-            new VmsDevice(VMS_LINE_T, "K3117+850", VMS_UPSTREAM_TOLLGATE),
-            new VmsDevice(VMS_LINE_T, "K3110+500", VMS_UPSTREAM_EXIT),
-            new VmsDevice(VMS_LINE_H, "K3283+900", VMS_UPSTREAM_EXIT),
-            new VmsDevice(VMS_LINE_H, "K3283+000", VMS_UPSTREAM_TOLLGATE),
-            new VmsDevice(VMS_LINE_H, "K3261+200", VMS_INSIDE_SEGMENT),
-            new VmsDevice(VMS_LINE_H, "K3245+200", VMS_UPSTREAM_SERVICE_AREA),
-            new VmsDevice(VMS_LINE_H, "K3232+000", VMS_INSIDE_SEGMENT),
-            new VmsDevice(VMS_LINE_H, "K3199+500", VMS_UPSTREAM_EXIT),
-            new VmsDevice(VMS_LINE_H, "K3197+000", VMS_UPSTREAM_TOLLGATE),
-            new VmsDevice(VMS_LINE_H, "K3194+515", VMS_UPSTREAM_SERVICE_AREA),
-            new VmsDevice(VMS_LINE_H, "K3180+000", VMS_INSIDE_SEGMENT),
-            new VmsDevice(VMS_LINE_H, "K3152+900", VMS_UPSTREAM_SERVICE_AREA),
-            new VmsDevice(VMS_LINE_H, "K3132+000", VMS_INSIDE_SEGMENT),
-            new VmsDevice(VMS_LINE_H, "K3119+300", VMS_UPSTREAM_EXIT),
-            new VmsDevice(VMS_LINE_H, "K3117+800", VMS_UPSTREAM_TOLLGATE)
+            new VmsDevice(VMS_LINE_T, "T10013R", "K3282+300", VMS_UPSTREAM_TOLLGATE),
+            new VmsDevice(VMS_LINE_T, "T10012C", "K3281+370", VMS_UPSTREAM_EXIT),
+            new VmsDevice(VMS_LINE_T, "T10011", "K3263+200", VMS_INSIDE_SEGMENT),
+            new VmsDevice(VMS_LINE_T, "T10010F", "K3243+100", VMS_UPSTREAM_SERVICE_AREA),
+            new VmsDevice(VMS_LINE_T, "T10009", "K3234+000", VMS_INSIDE_SEGMENT),
+            new VmsDevice(VMS_LINE_T, "T10008R", "K3198+000", VMS_UPSTREAM_TOLLGATE),
+            new VmsDevice(VMS_LINE_T, "T10007C", "K3196+450", VMS_UPSTREAM_EXIT),
+            new VmsDevice(VMS_LINE_T, "T10006F", "K3191+800", VMS_UPSTREAM_SERVICE_AREA),
+            new VmsDevice(VMS_LINE_T, "T10005", "K3180+000", VMS_INSIDE_SEGMENT),
+            new VmsDevice(VMS_LINE_T, "T10004F", "K3150+000", VMS_UPSTREAM_SERVICE_AREA),
+            new VmsDevice(VMS_LINE_T, "T10003", "K3134+000", VMS_INSIDE_SEGMENT),
+            new VmsDevice(VMS_LINE_T, "T10002R", "K3117+850", VMS_UPSTREAM_TOLLGATE),
+            new VmsDevice(VMS_LINE_T, "T10001C", "K3110+500", VMS_UPSTREAM_EXIT),
+            new VmsDevice(VMS_LINE_H, "H10013C", "K3283+900", VMS_UPSTREAM_EXIT),
+            new VmsDevice(VMS_LINE_H, "H10012R", "K3283+000", VMS_UPSTREAM_TOLLGATE),
+            new VmsDevice(VMS_LINE_H, "H10011", "K3261+200", VMS_INSIDE_SEGMENT),
+            new VmsDevice(VMS_LINE_H, "H10010F", "K3245+200", VMS_UPSTREAM_SERVICE_AREA),
+            new VmsDevice(VMS_LINE_H, "H10009", "K3232+000", VMS_INSIDE_SEGMENT),
+            new VmsDevice(VMS_LINE_H, "H10008C", "K3199+500", VMS_UPSTREAM_EXIT),
+            new VmsDevice(VMS_LINE_H, "H10007R", "K3197+000", VMS_UPSTREAM_TOLLGATE),
+            new VmsDevice(VMS_LINE_H, "H10006F", "K3194+515", VMS_UPSTREAM_SERVICE_AREA),
+            new VmsDevice(VMS_LINE_H, "H10005", "K3180+000", VMS_INSIDE_SEGMENT),
+            new VmsDevice(VMS_LINE_H, "H10004F", "K3152+900", VMS_UPSTREAM_SERVICE_AREA),
+            new VmsDevice(VMS_LINE_H, "H10003", "K3132+000", VMS_INSIDE_SEGMENT),
+            new VmsDevice(VMS_LINE_H, "H10002C", "K3119+300", VMS_UPSTREAM_EXIT),
+            new VmsDevice(VMS_LINE_H, "H10001R", "K3117+800", VMS_UPSTREAM_TOLLGATE)
     );
 
     /** 桩号提取规则，支持 K3191 与 K3191+800。 */
@@ -328,50 +328,48 @@ public class WindControlWindImpactService {
         if (content == null || content.isBlank()) {
             return;
         }
-        String stake = resolveVmsStake(controlInterval, sendStakeRange, sendRange, key);
-        if (stake.isBlank()) {
+        VmsDevice device = resolveVmsDevice(controlInterval, sendStakeRange, sendRange, key);
+        if (device == null) {
             return;
         }
         Map<String, Object> item = new LinkedHashMap<>();
-        item.put("stake", stake);
+        item.put("stake", device.stake());
+        item.put("deviceId", device.deviceId());
         item.put("content", content);
         target.put(key, item);
     }
 
-    private String resolveVmsStake(String controlInterval, String sendStakeRange, double[] sendRange, String key) {
+    private VmsDevice resolveVmsDevice(String controlInterval, String sendStakeRange, double[] sendRange, String key) {
         String line = vmsLineByControlInterval(controlInterval);
         List<VmsDevice> candidates = VMS_DEVICES.stream()
                 .filter(device -> line.equals(device.line()))
                 .filter(device -> parseStakeValue(device.stake()) != null)
                 .toList();
         if (VMS_INSIDE_SEGMENT.equals(key)) {
-            return selectInsideVmsStake(sendStakeRange, sendRange, candidates);
+            return selectInsideVmsDevice(sendStakeRange, sendRange, candidates);
         }
         boolean upstreamLowerSide = isUpstreamLowerSide(sendStakeRange);
         return candidates.stream()
                 .filter(device -> key.equals(device.type()))
                 .filter(device -> isUpstreamDevice(device, sendRange, upstreamLowerSide))
                 .min((left, right) -> compareUpstreamDevice(left, right, upstreamLowerSide))
-                .map(VmsDevice::stake)
-                .orElse("");
+                .orElse(null);
     }
 
-    private String selectInsideVmsStake(String sendStakeRange, double[] sendRange, List<VmsDevice> candidates) {
+    private VmsDevice selectInsideVmsDevice(String sendStakeRange, double[] sendRange, List<VmsDevice> candidates) {
         boolean upstreamLowerSide = isUpstreamLowerSide(sendStakeRange);
-        String insideStake = candidates.stream()
+        VmsDevice insideDevice = candidates.stream()
                 .filter(device -> VMS_INSIDE_SEGMENT.equals(device.type()))
                 .filter(device -> isStakeInside(device, sendRange))
                 .min((left, right) -> compareInsideDevice(left, right, upstreamLowerSide))
-                .map(VmsDevice::stake)
-                .orElse("");
-        if (!insideStake.isBlank()) {
-            return insideStake;
+                .orElse(null);
+        if (insideDevice != null) {
+            return insideDevice;
         }
         return candidates.stream()
                 .filter(device -> isStakeInside(device, sendRange))
                 .min((left, right) -> compareInsideDevice(left, right, upstreamLowerSide))
-                .map(VmsDevice::stake)
-                .orElse("");
+                .orElse(null);
     }
 
     private String vmsLineByControlInterval(String controlInterval) {
@@ -1768,17 +1766,23 @@ public class WindControlWindImpactService {
 
     private static class VmsDevice {
         private final String line;
+        private final String deviceId;
         private final String stake;
         private final String type;
 
-        private VmsDevice(String line, String stake, String type) {
+        private VmsDevice(String line, String deviceId, String stake, String type) {
             this.line = line;
+            this.deviceId = deviceId;
             this.stake = stake;
             this.type = type;
         }
 
         private String line() {
             return line;
+        }
+
+        private String deviceId() {
+            return deviceId;
         }
 
         private String stake() {
