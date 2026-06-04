@@ -1480,6 +1480,16 @@ public class WindControlExecutionService {
         if (!fromExistingLocation.isBlank()) {
             return fromExistingLocation;
         }
+        String fromMappedLocation = mapSegmentTextToStakeRange(firstNonBlank(
+                viewRow.get("controlPerimeter"),
+                viewRow.get("segment"),
+                source.get("controlPerimeter"),
+                source.get("segmentText"),
+                source.get("segment")
+        ));
+        if (!fromMappedLocation.isBlank()) {
+            return fromMappedLocation;
+        }
         String fromControlPerimeter = extractStakeRangeText(stateService.stringValue(viewRow.get("controlPerimeter")));
         if (!fromControlPerimeter.isBlank()) {
             return fromControlPerimeter;
@@ -1489,6 +1499,37 @@ public class WindControlExecutionService {
             return fromSegment;
         }
         return stateService.stringValue(viewRow.get("incidentLocation"));
+    }
+
+    private String mapSegmentTextToStakeRange(String text) {
+        String normalized = normalizeSegmentKey(text);
+        if (normalized.isBlank()) {
+            return "";
+        }
+        if (normalized.contains("沙尔湖服务区-红山口互通")) {
+            return "K3204-K3203";
+        }
+        if (normalized.contains("红山口互通-沙尔湖服务区")) {
+            return "K3203-K3204";
+        }
+        if (normalized.contains("红山口互通-红山口服务区")) {
+            return "K3192-K3178";
+        }
+        if (normalized.contains("红山口服务区-红山口互通")) {
+            return "K3178-K3192";
+        }
+        return "";
+    }
+
+    private String normalizeSegmentKey(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        return text.replace("—", "-")
+                .replace("至", "-")
+                .replace("到", "-")
+                .replace(" ", "")
+                .trim();
     }
 
     private boolean containsStake(String text) {
