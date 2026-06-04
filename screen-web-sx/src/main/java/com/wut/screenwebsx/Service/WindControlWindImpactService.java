@@ -302,7 +302,7 @@ public class WindControlWindImpactService {
         if (sendRange == null) {
             return Map.of();
         }
-        Map<String, Object> plan = findLatestPlanForControlInterval(controlInterval, direction, startStake, endStake);
+        Map<String, Object> plan = findLatestPlanForControlInterval(controlInterval, direction, startStake, endStake, sendRange);
         if (plan == null || plan.isEmpty()) {
             return Map.of();
         }
@@ -418,7 +418,8 @@ public class WindControlWindImpactService {
     private Map<String, Object> findLatestPlanForControlInterval(String controlInterval,
                                                                  int direction,
                                                                  String startStake,
-                                                                 String endStake) {
+                                                                 String endStake,
+                                                                 double[] sendRange) {
         Map<String, Object> matched = null;
         long matchedTime = Long.MIN_VALUE;
         double[] targetRange = parseRange(startStake + "-" + endStake);
@@ -426,7 +427,7 @@ public class WindControlWindImpactService {
             if (direction != stateService.intValue(plan.get("direction"), direction)) {
                 continue;
             }
-            if (!isPlanForControlInterval(plan, controlInterval, targetRange)) {
+            if (!isPlanForControlInterval(plan, controlInterval, targetRange, sendRange)) {
                 continue;
             }
             long planTime = resolvePlanSortTime(plan);
@@ -438,7 +439,10 @@ public class WindControlWindImpactService {
         return matched;
     }
 
-    private boolean isPlanForControlInterval(Map<String, Object> plan, String controlInterval, double[] targetRange) {
+    private boolean isPlanForControlInterval(Map<String, Object> plan,
+                                             String controlInterval,
+                                             double[] targetRange,
+                                             double[] sendRange) {
         String intervalName = stateService.stringValue(plan.get("intervalName"));
         String segment = stateService.stringValue(plan.get("segment"));
         String segmentText = stateService.stringValue(plan.get("segmentText"));
@@ -451,9 +455,25 @@ public class WindControlWindImpactService {
         String planStart = stateService.stringValue(plan.get("startStake"));
         String planEnd = stateService.stringValue(plan.get("endStake"));
         double[] planRange = parseRange(planStart + "-" + planEnd);
-        return targetRange != null && planRange != null
-                && targetRange[0] == planRange[0]
-                && targetRange[1] == planRange[1];
+        return rangesEquivalentOrStronglyOverlap(targetRange, planRange)
+                || rangesEquivalentOrStronglyOverlap(sendRange, planRange);
+    }
+
+    private boolean rangesEquivalentOrStronglyOverlap(double[] left, double[] right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        if (left[0] == right[0] && left[1] == right[1]) {
+            return true;
+        }
+        double overlap = Math.min(left[1], right[1]) - Math.max(left[0], right[0]);
+        if (overlap <= 0D) {
+            return false;
+        }
+        double leftLength = Math.max(0D, left[1] - left[0]);
+        double rightLength = Math.max(0D, right[1] - right[0]);
+        double smallerLength = Math.min(leftLength, rightLength);
+        return smallerLength > 0D && overlap / smallerLength >= 0.6D;
     }
 
     private long resolvePlanSortTime(Map<String, Object> plan) {
