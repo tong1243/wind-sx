@@ -307,16 +307,113 @@ public class WindControlWindImpactService {
             return Map.of();
         }
 
-        String riskSectionPlan = stateService.stringValue(plan.get(VMS_INSIDE_SEGMENT));
+        Map<String, String> vmsTexts = resolvePlanVmsTexts(plan);
+        String riskSectionPlan = vmsTexts.getOrDefault(VMS_INSIDE_SEGMENT, "");
         Map<String, Object> result = new LinkedHashMap<>();
         putVmsItemIfNotBlank(result, controlInterval, sendStakeRange, sendRange, VMS_INSIDE_SEGMENT, riskSectionPlan);
         putVmsItemIfNotBlank(result, controlInterval, sendStakeRange, sendRange, VMS_UPSTREAM_EXIT,
-                materializePlanText(stateService.stringValue(plan.get(VMS_UPSTREAM_EXIT)), riskSectionPlan));
+                vmsTexts.getOrDefault(VMS_UPSTREAM_EXIT, ""));
         putVmsItemIfNotBlank(result, controlInterval, sendStakeRange, sendRange, VMS_UPSTREAM_TOLLGATE,
-                materializePlanText(stateService.stringValue(plan.get(VMS_UPSTREAM_TOLLGATE)), riskSectionPlan));
+                vmsTexts.getOrDefault(VMS_UPSTREAM_TOLLGATE, ""));
         putVmsItemIfNotBlank(result, controlInterval, sendStakeRange, sendRange, VMS_UPSTREAM_SERVICE_AREA,
-                materializePlanText(stateService.stringValue(plan.get(VMS_UPSTREAM_SERVICE_AREA)), riskSectionPlan));
+                vmsTexts.getOrDefault(VMS_UPSTREAM_SERVICE_AREA, ""));
         return result;
+    }
+
+    private Map<String, String> resolvePlanVmsTexts(Map<String, Object> plan) {
+        Map<String, String> mergedTexts = parseMergedVmsContent(firstNonBlank(
+                plan.get("vmsContent"),
+                plan.get(VMS_INSIDE_SEGMENT),
+                plan.get(VMS_UPSTREAM_EXIT),
+                plan.get(VMS_UPSTREAM_TOLLGATE),
+                plan.get(VMS_UPSTREAM_SERVICE_AREA)
+        ));
+        String inside = resolveSingleVmsText(plan, mergedTexts, VMS_INSIDE_SEGMENT, "");
+        String exit = resolveSingleVmsText(plan, mergedTexts, VMS_UPSTREAM_EXIT, inside);
+        String tollgate = resolveSingleVmsText(plan, mergedTexts, VMS_UPSTREAM_TOLLGATE, inside);
+        String serviceArea = resolveSingleVmsText(plan, mergedTexts, VMS_UPSTREAM_SERVICE_AREA, inside);
+
+        Map<String, String> result = new LinkedHashMap<>();
+        result.put(VMS_INSIDE_SEGMENT, inside);
+        result.put(VMS_UPSTREAM_EXIT, exit);
+        result.put(VMS_UPSTREAM_TOLLGATE, tollgate);
+        result.put(VMS_UPSTREAM_SERVICE_AREA, serviceArea);
+        return result;
+    }
+
+    private String resolveSingleVmsText(Map<String, Object> plan,
+                                        Map<String, String> mergedTexts,
+                                        String key,
+                                        String riskSectionPlan) {
+        String raw = stateService.stringValue(plan.get(key));
+        if (isMergedVmsContent(raw)) {
+            raw = mergedTexts.getOrDefault(key, "");
+        }
+        if (raw.isBlank()) {
+            raw = mergedTexts.getOrDefault(key, "");
+        }
+        return materializePlanText(raw, riskSectionPlan);
+    }
+
+    private Map<String, String> parseMergedVmsContent(String rawText) {
+        if (!isMergedVmsContent(rawText)) {
+            return Map.of();
+        }
+        Map<String, String> result = new LinkedHashMap<>();
+        putMergedVmsPart(result, rawText, VMS_INSIDE_SEGMENT,
+                "\u533a\u6bb5\u5185\uff1a", "\u4e0a\u6e38\u51fa\u53e3\uff1a");
+        putMergedVmsPart(result, rawText, VMS_UPSTREAM_EXIT,
+                "\u4e0a\u6e38\u51fa\u53e3\uff1a", "\u4e0a\u6e38\u5165\u53e3\uff1a");
+        putMergedVmsPart(result, rawText, VMS_UPSTREAM_TOLLGATE,
+                "\u4e0a\u6e38\u5165\u53e3\uff1a", "\u4e0a\u6e38\u670d\u52a1\u533a\uff1a");
+        putMergedVmsPart(result, rawText, VMS_UPSTREAM_SERVICE_AREA,
+                "\u4e0a\u6e38\u670d\u52a1\u533a\uff1a", "");
+        return result;
+    }
+
+    private void putMergedVmsPart(Map<String, String> target,
+                                  String rawText,
+                                  String key,
+                                  String startLabel,
+                                  String endLabel) {
+        int start = rawText.indexOf(startLabel);
+        if (start < 0) {
+            return;
+        }
+        start += startLabel.length();
+        int end = endLabel.isBlank() ? rawText.length() : rawText.indexOf(endLabel, start);
+        if (end < 0) {
+            end = rawText.length();
+        }
+        String value = rawText.substring(start, end).trim();
+        if (value.endsWith("\uff1b")) {
+            value = value.substring(0, value.length() - 1).trim();
+        }
+        if (!value.isBlank()) {
+            target.put(key, value);
+        }
+    }
+
+    private boolean isMergedVmsContent(String text) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        return text.contains("\u533a\u6bb5\u5185\uff1a")
+                && text.contains("\u4e0a\u6e38\u51fa\u53e3\uff1a")
+                && text.contains("\u4e0a\u6e38\u5165\u53e3\uff1a");
+    }
+
+    private String firstNonBlank(Object... values) {
+        if (values == null) {
+            return "";
+        }
+        for (Object value : values) {
+            String text = stateService.stringValue(value);
+            if (!text.isBlank()) {
+                return text;
+            }
+        }
+        return "";
     }
 
     private void putVmsItemIfNotBlank(Map<String, Object> target,
@@ -455,25 +552,53 @@ public class WindControlWindImpactService {
         String planStart = stateService.stringValue(plan.get("startStake"));
         String planEnd = stateService.stringValue(plan.get("endStake"));
         double[] planRange = parseRange(planStart + "-" + planEnd);
-        return rangesEquivalentOrStronglyOverlap(targetRange, planRange)
-                || rangesEquivalentOrStronglyOverlap(sendRange, planRange);
+        if (rangesEquivalent(targetRange, planRange) || rangesEquivalent(sendRange, planRange)) {
+            return true;
+        }
+        int controlGroup = controlIntervalGroup(controlInterval);
+        int planGroup = stakeRangeGroup(planRange);
+        return controlGroup > 0 && controlGroup == planGroup;
     }
 
-    private boolean rangesEquivalentOrStronglyOverlap(double[] left, double[] right) {
+    private boolean rangesEquivalent(double[] left, double[] right) {
         if (left == null || right == null) {
             return false;
         }
-        if (left[0] == right[0] && left[1] == right[1]) {
-            return true;
+        return left[0] == right[0] && left[1] == right[1];
+    }
+
+    private int controlIntervalGroup(String controlInterval) {
+        if (controlInterval == null || controlInterval.isBlank()) {
+            return 0;
         }
-        double overlap = Math.min(left[1], right[1]) - Math.max(left[0], right[0]);
-        if (overlap <= 0D) {
-            return false;
+        if (controlInterval.endsWith("-1")) {
+            return 1;
         }
-        double leftLength = Math.max(0D, left[1] - left[0]);
-        double rightLength = Math.max(0D, right[1] - right[0]);
-        double smallerLength = Math.min(leftLength, rightLength);
-        return smallerLength > 0D && overlap / smallerLength >= 0.6D;
+        if (controlInterval.endsWith("-2")) {
+            return 2;
+        }
+        if (controlInterval.endsWith("-3")) {
+            return 3;
+        }
+        return 0;
+    }
+
+    private int stakeRangeGroup(double[] range) {
+        if (range == null) {
+            return 0;
+        }
+        double min = range[0];
+        double max = range[1];
+        if (min >= 3197D && max <= 3204D) {
+            return 1;
+        }
+        if (min >= 3192D && max <= 3197.5D) {
+            return 2;
+        }
+        if (min >= 3178D && max <= 3193.5D) {
+            return 3;
+        }
+        return 0;
     }
 
     private long resolvePlanSortTime(Map<String, Object> plan) {
