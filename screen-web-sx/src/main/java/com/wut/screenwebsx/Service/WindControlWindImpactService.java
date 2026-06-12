@@ -51,10 +51,10 @@ public class WindControlWindImpactService {
     private static final double WIND_OBSERVATION_RANGE_MIN = 3178D;
     private static final double WIND_OBSERVATION_RANGE_MAX = 3204D;
     /** 4.2.3 固定管控区间（统一双向使用）。 */
-    private static final List<String> FIXED_IMPACT_STAKE_RANGES = List.of(
-            "K3178-K3192",
-            "K3192-K3197",
-            "K3197-K3204"
+    private static final List<ImpactInterval> FIXED_IMPACT_INTERVALS = List.of(
+            new ImpactInterval("k3178至红山口服务区", "K3178-K3193"),
+            new ImpactInterval("红山口服务区至红山口互通", "K3194-K3200"),
+            new ImpactInterval("红山口互通至k3204", "K3201-K3204")
     );
     private static final String SAME_RISK_PLACEHOLDER = "\u540c\u98ce\u9669\u533a\u6bb5\u5185\u65b9\u6848";
     private static final String VMS_INSIDE_SEGMENT = "vmsInsideSegment";
@@ -848,13 +848,13 @@ public class WindControlWindImpactService {
         List<WindData> future2hRows = windDataService.listByTimeRange(now, toLocalDateTime(timestamp + WINDOW_2H_MS));
 
         List<Map<String, Object>> records = new ArrayList<>();
-        for (String stakeRange : FIXED_IMPACT_STAKE_RANGES) {
+        for (ImpactInterval interval : FIXED_IMPACT_INTERVALS) {
             for (Integer dir : List.of(DIRECTION_HAMI, DIRECTION_TURPAN)) {
                 if (normalizedDirection != null && !normalizedDirection.equals(dir)) {
                     continue;
                 }
-                Map<String, Object> realRecord = buildImpactRecord(stakeRange, stakeRange, timestamp, "real", dir, latestRows, future2hRows);
-                Map<String, Object> future2hRecord = buildImpactRecord(stakeRange, stakeRange, timestamp, "future2h", dir, latestRows, future2hRows);
+                Map<String, Object> realRecord = buildImpactRecord(interval.controlInterval(), interval.stakeRange(), timestamp, "real", dir, latestRows, future2hRows);
+                Map<String, Object> future2hRecord = buildImpactRecord(interval.controlInterval(), interval.stakeRange(), timestamp, "future2h", dir, latestRows, future2hRows);
                 if ("real".equals(normalizedPeriodType)) {
                     records.add(realRecord);
                 } else if ("future2h".equals(normalizedPeriodType)) {
@@ -1906,6 +1906,24 @@ public class WindControlWindImpactService {
             this.stakeRange = stakeRange;
             this.startStake = startStake;
             this.endStake = endStake;
+        }
+    }
+
+    private static class ImpactInterval {
+        private final String controlInterval;
+        private final String stakeRange;
+
+        private ImpactInterval(String controlInterval, String stakeRange) {
+            this.controlInterval = controlInterval;
+            this.stakeRange = stakeRange;
+        }
+
+        private String controlInterval() {
+            return controlInterval;
+        }
+
+        private String stakeRange() {
+            return stakeRange;
         }
     }
 
