@@ -313,10 +313,17 @@ public class WindControlExecutionService {
             forecastWind = stateService.mapWindSpeedToWindLevel(forecastMaxWindSpeed);
         }
 
+        boolean levelInputsChanged = body != null && (body.containsKey("realtimeWindLevel")
+                || body.containsKey("forecastMaxWindLevel")
+                || body.containsKey("actualWindSpeedMs")
+                || body.containsKey("forecastMaxWindSpeed2hMs")
+                || body.containsKey("forecastWindSpeedSeriesMs"));
         int computedLevel = resolveConfiguredControlLevel(Math.max(realtimeWind, forecastWind));
         int recommendedLevel = body != null && body.containsKey("recommendedControlLevel")
                 ? stateService.intValue(body.get("recommendedControlLevel"), computedLevel)
-                : computedLevel;
+                : levelInputsChanged
+                ? computedLevel
+                : stateService.intValue(plan.get("recommendedControlLevel"), computedLevel);
 
         Map<String, Object> template = stateService.getControlPlanLibrary().get(recommendedLevel);
         if (template == null) {
@@ -895,6 +902,10 @@ public class WindControlExecutionService {
             } else if (plan != null && "DRAFT".equalsIgnoreCase(stateService.stringValue(plan.get("status")))) {
                 refreshDraftPlanRecommendation(plan, interval);
             }
+            if (plan != null) {
+                alignPlanRecommendationWithFuture2h(plan, interval, future2hRows);
+                stateService.getPersistenceService().upsertPlan(plan);
+            }
             Map<String, Object> row = plan == null
                     ? buildEmptyAutoGenerationRow(resolveDashboardSegmentText(interval, direction), direction)
                     : buildAutoGenerationRowFromPlan(plan, interval);
@@ -908,6 +919,7 @@ public class WindControlExecutionService {
             }
             rows.add(row);
         }
+        stateService.persistSnapshot();
         return rows;
     }
 
@@ -1150,12 +1162,18 @@ public class WindControlExecutionService {
                 stateService.stringValue(template.get("riskSectionPlan")),
                 stateService.stringValue(template.get("riskSectionPlan"))
         );
-        String vmsInsideSegment = materializePlanText(stateService.stringValue(plan.get("vmsInsideSegment")), riskSectionPlan);
-        String vmsUpstreamExit = materializePlanText(stateService.stringValue(plan.get("vmsUpstreamExit")), riskSectionPlan);
-        String vmsUpstreamTollgate = materializePlanText(stateService.stringValue(plan.get("vmsUpstreamTollgate")), riskSectionPlan);
+        boolean includeUpstreamServiceArea = shouldIncludeUpstreamServiceArea(hasInterchange);
+        Map<String, String> recommendedVmsTexts = resolvePlanVmsTexts(
+                template,
+                stateService.stringValue(table.get("segmentText")),
+                includeUpstreamServiceArea
+        );
+        String vmsInsideSegment = materializePlanText(recommendedVmsTexts.get("vmsInsideSegment"), riskSectionPlan);
+        String vmsUpstreamExit = materializePlanText(recommendedVmsTexts.get("vmsUpstreamExit"), riskSectionPlan);
+        String vmsUpstreamTollgate = materializePlanText(recommendedVmsTexts.get("vmsUpstreamTollgate"), riskSectionPlan);
         String vmsUpstreamServiceArea = hasInterchange
                 ? buildServiceAreaWelcomeText(table.get("segmentText"))
-                : materializePlanText(stateService.stringValue(plan.get("vmsUpstreamServiceArea")), riskSectionPlan);
+                : materializePlanText(recommendedVmsTexts.get("vmsUpstreamServiceArea"), riskSectionPlan);
         table.put("vmsInsideSegment", vmsInsideSegment);
         table.put("vmsUpstreamExit", vmsUpstreamExit);
         table.put("vmsUpstreamTollgate", vmsUpstreamTollgate);
@@ -1165,6 +1183,21 @@ public class WindControlExecutionService {
         String upstreamTollgateControl = materializePlanText(stateService.stringValue(template.get("upstreamEntryPlan")), riskSectionPlan);
         table.put("upstreamExitControl", upstreamExitControl);
         table.put("upstreamTollgateControl", upstreamTollgateControl);
+        plan.put("vmsInsideSegment", vmsInsideSegment);
+        plan.put("vmsUpstreamExit", vmsUpstreamExit);
+        plan.put("vmsUpstreamTollgate", vmsUpstreamTollgate);
+        plan.put("vmsUpstreamServiceArea", vmsUpstreamServiceArea);
+        plan.put("vmsContent", buildVmsContent(vmsInsideSegment, vmsUpstreamExit, vmsUpstreamTollgate, vmsUpstreamServiceArea));
+        plan.put("vmsPublishItems", buildVmsPublishItems(
+                stateService.intValue(table.get("direction"), DIRECTION_HAMI),
+                stateService.stringValue(plan.get("nearestUpstreamInterchangeStake")),
+                stateService.stringValue(table.get("segmentText")),
+                vmsInsideSegment,
+                vmsUpstreamExit,
+                vmsUpstreamTollgate,
+                vmsUpstreamServiceArea,
+                includeUpstreamServiceArea
+        ));
         List<Map<String, Object>> vmsFacilityItems = normalizeVmsPublishItems(plan.get("vmsPublishItems"));
         int controlLevel = stateService.intValue(table.get("controlLevel"), stateService.getDefaultControlLevel());
         List<Map<String, Object>> publishRows = buildExecutionPublishRows(
@@ -1290,9 +1323,7 @@ public class WindControlExecutionService {
         String endStake = stateService.stringValue(plan.get("endStake"));
         int future2hWindLevel = 0;
         if (!startStake.isBlank() && !endStake.isBlank()) {
-            long baseTimestamp = timestamp == null || timestamp <= 0
-                    ? longValue(plan.get("timestamp"), System.currentTimeMillis())
-                    : timestamp;
+            long baseTimestamp = timestamp == null || timestamp <= 0 ? System.currentTimeMillis() : timestamp;
             LocalDateTime baseTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(baseTimestamp), ZoneId.systemDefault());
             List<WindData> future2hRows = windDataService.listByTimeRange(
                     baseTime,
@@ -1304,6 +1335,24 @@ public class WindControlExecutionService {
                 ? resolveConfiguredControlLevel(future2hWindLevel)
                 : stateService.intValue(plan.get("recommendedControlLevel"),
                 stateService.intValue(plan.get("controlLevel"), stateService.getDefaultControlLevel()));
+        Map<String, Object> template = resolveTemplateByRecommendedLevel(plan, recommendedLevel);
+        applyRecommendedTemplateToPlan(plan, recommendedLevel, template, future2hWindLevel);
+    }
+
+    private void alignPlanRecommendationWithFuture2h(Map<String, Object> plan,
+                                                     Map<String, Object> interval,
+                                                     List<WindData> future2hRows) {
+        if (plan == null || plan.isEmpty()) {
+            return;
+        }
+        int direction = stateService.intValue(plan.get("direction"), stateService.intValue(interval.get("direction"), DIRECTION_HAMI));
+        String startStake = firstNonBlank(plan.get("startStake"), interval.get("startStake"));
+        String endStake = firstNonBlank(plan.get("endStake"), interval.get("endStake"));
+        int future2hWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, future2hRows);
+        if (future2hWindLevel <= 0) {
+            return;
+        }
+        int recommendedLevel = resolveConfiguredControlLevel(future2hWindLevel);
         Map<String, Object> template = resolveTemplateByRecommendedLevel(plan, recommendedLevel);
         applyRecommendedTemplateToPlan(plan, recommendedLevel, template, future2hWindLevel);
     }
