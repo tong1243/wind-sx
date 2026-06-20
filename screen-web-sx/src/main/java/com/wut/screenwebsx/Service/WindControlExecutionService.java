@@ -1263,17 +1263,10 @@ public class WindControlExecutionService {
         if (current == null) {
             throw new IllegalArgumentException("plan not found: " + planId);
         }
-        int planDirection = normalizeDirectionValue(
-                stateService.intValue(current.get("direction"), DIRECTION_HAMI),
-                DIRECTION_HAMI
-        );
         Set<String> seenDeviceIds = new HashSet<>();
         List<Map<String, Object>> rows = new ArrayList<>();
         for (Map<String, Object> facility : getPublishFacilitiesForExecution()) {
             int facilityDirection = stateService.intValue(facility.get("direction"), -1);
-            if (facilityDirection != planDirection) {
-                continue;
-            }
             String deviceId = stateService.stringValue(facility.get("facilityId"));
             if (deviceId.isBlank() || !seenDeviceIds.add(deviceId)) {
                 continue;
@@ -1324,6 +1317,11 @@ public class WindControlExecutionService {
         int direction = stateService.intValue(plan.get("direction"), DIRECTION_HAMI);
         String startStake = stateService.stringValue(plan.get("startStake"));
         String endStake = stateService.stringValue(plan.get("endStake"));
+        String future2hStakeRange = resolveSpatiotemporalStakeRange(plan);
+        if (!future2hStakeRange.isBlank()) {
+            startStake = extractStake(future2hStakeRange, true);
+            endStake = extractStake(future2hStakeRange, false);
+        }
         int future2hWindLevel = 0;
         if (!startStake.isBlank() && !endStake.isBlank()) {
             long baseTimestamp = timestamp == null || timestamp <= 0
@@ -1359,6 +1357,11 @@ public class WindControlExecutionService {
         int direction = stateService.intValue(plan.get("direction"), stateService.intValue(interval.get("direction"), DIRECTION_HAMI));
         String startStake = firstNonBlank(plan.get("startStake"), interval.get("startStake"));
         String endStake = firstNonBlank(plan.get("endStake"), interval.get("endStake"));
+        String future2hStakeRange = resolveSpatiotemporalStakeRange(plan, interval);
+        if (!future2hStakeRange.isBlank()) {
+            startStake = extractStake(future2hStakeRange, true);
+            endStake = extractStake(future2hStakeRange, false);
+        }
         int future2hWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, future2hRows);
         if (future2hWindLevel <= 0) {
             return;
@@ -1374,6 +1377,43 @@ public class WindControlExecutionService {
             return template;
         }
         return safeMap(plan == null ? null : plan.get("template"));
+    }
+
+    private String resolveSpatiotemporalStakeRange(Map<String, Object> plan) {
+        return resolveSpatiotemporalStakeRange(plan, Collections.emptyMap());
+    }
+
+    private String resolveSpatiotemporalStakeRange(Map<String, Object> plan, Map<String, Object> interval) {
+        String intervalName = firstNonBlank(
+                plan == null ? null : plan.get("intervalName"),
+                interval == null ? null : interval.get("intervalName")
+        ).trim();
+        if ("1-1".equals(intervalName) || "2-1".equals(intervalName)) {
+            return "K3197-K3204";
+        }
+        if ("1-2".equals(intervalName) || "2-2".equals(intervalName)) {
+            return "K3192-K3197";
+        }
+        if ("1-3".equals(intervalName) || "2-3".equals(intervalName)) {
+            return "K3178-K3192";
+        }
+
+        String segmentText = normalizeSegmentLookupKey(firstNonBlank(
+                plan == null ? null : plan.get("segmentText"),
+                plan == null ? null : plan.get("segment"),
+                interval == null ? null : interval.get("segmentText"),
+                interval == null ? null : interval.get("segment")
+        ));
+        if (segmentText.contains("一碗泉服务区-红山口服务区")) {
+            return "K3197-K3204";
+        }
+        if (segmentText.contains("沙尔湖服务区-红山口互通")) {
+            return "K3192-K3197";
+        }
+        if (segmentText.contains("七克台互通-沙尔湖服务区")) {
+            return "K3178-K3192";
+        }
+        return "";
     }
 
     private void applyRecommendedTemplateToPlan(Map<String, Object> plan,
