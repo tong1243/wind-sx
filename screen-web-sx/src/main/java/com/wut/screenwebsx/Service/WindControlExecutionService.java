@@ -36,6 +36,11 @@ public class WindControlExecutionService {
     private static final String KEY_AUTO_UPDATE_LATEST = "LATEST";
     private static final String DISPATCH_REASON_ROAD_CLOSURE = "封路";
     private static final String EVENT_REPORT_EXPORT_DIR = "事件报告CSV导出";
+    private static final String GREEN_ALERT_FIXED_VMS_CONTENT = "连霍高速欢迎您，请遵循指引安全驾驶。\n温馨提示：小型车限速120，大型车限速80。";
+    private static final String VMS_KIND_INSIDE_SEGMENT = "INSIDE_SEGMENT";
+    private static final String VMS_KIND_UPSTREAM_EXIT = "UPSTREAM_EXIT";
+    private static final String VMS_KIND_UPSTREAM_TOLLGATE = "UPSTREAM_TOLLGATE";
+    private static final String VMS_KIND_UPSTREAM_SERVICE_AREA = "UPSTREAM_SERVICE_AREA";
 
     private final DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
             .withZone(ZoneId.systemDefault());
@@ -1116,6 +1121,7 @@ public class WindControlExecutionService {
         table.put("upstreamExitControl", upstreamExitControl);
         table.put("upstreamTollgateControl", upstreamTollgateControl);
         List<Map<String, Object>> vmsFacilityItems = normalizeVmsPublishItems(plan.get("vmsPublishItems"));
+        int controlLevel = stateService.intValue(table.get("controlLevel"), stateService.getDefaultControlLevel());
         List<Map<String, Object>> publishRows = buildExecutionPublishRows(
                 vmsFacilityItems,
                 vmsInsideSegment,
@@ -1123,7 +1129,8 @@ public class WindControlExecutionService {
                 vmsUpstreamTollgate,
                 vmsUpstreamServiceArea,
                 upstreamExitControl,
-                upstreamTollgateControl
+                upstreamTollgateControl,
+                controlLevel
         );
         table.put("publishRows", publishRows);
         table.put("vmsPublishRows", filterVmsPublishRows(publishRows));
@@ -1216,27 +1223,39 @@ public class WindControlExecutionService {
                                                                 String vmsUpstreamTollgate,
                                                                 String vmsUpstreamServiceArea,
                                                                 String upstreamExitControl,
-                                                                String upstreamTollgateControl) {
+                                                                String upstreamTollgateControl,
+                                                                int controlLevel) {
         String insideDeviceIds = resolveFirstDeviceIdBySegment(vmsFacilityItems, "区段");
         String exitDeviceIds = resolveFirstDeviceIdBySegment(vmsFacilityItems, "出口");
         String tollgateDeviceIds = resolveFirstDeviceIdBySegment(vmsFacilityItems, "入口", "收费站");
         String serviceAreaDeviceIds = resolveFirstDeviceIdBySegment(vmsFacilityItems, "服务区");
         List<Map<String, Object>> rows = new ArrayList<>();
-        rows.add(executionPublishRow("VMS", "管控区间内VMS", insideDeviceIds, vmsInsideSegment));
-        rows.add(executionPublishRow("VMS", "管控区间上游互通出口VMS", exitDeviceIds, vmsUpstreamExit));
-        rows.add(executionPublishRow("VMS", "管控区间上游互通入口收费站VMS", tollgateDeviceIds, vmsUpstreamTollgate));
-        rows.add(executionPublishRow("VMS", "服务区前VMS", serviceAreaDeviceIds, vmsUpstreamServiceArea));
+        rows.add(executionPublishRow("VMS", "管控区间内VMS", insideDeviceIds, vmsInsideSegment,
+                resolveFixedVmsContent(controlLevel, VMS_KIND_INSIDE_SEGMENT)));
+        rows.add(executionPublishRow("VMS", "管控区间上游互通出口VMS", exitDeviceIds, vmsUpstreamExit,
+                resolveFixedVmsContent(controlLevel, VMS_KIND_UPSTREAM_EXIT)));
+        rows.add(executionPublishRow("VMS", "管控区间上游互通入口收费站VMS", tollgateDeviceIds, vmsUpstreamTollgate,
+                resolveFixedVmsContent(controlLevel, VMS_KIND_UPSTREAM_TOLLGATE)));
+        rows.add(executionPublishRow("VMS", "服务区前VMS", serviceAreaDeviceIds, vmsUpstreamServiceArea,
+                resolveFixedVmsContent(controlLevel, VMS_KIND_UPSTREAM_SERVICE_AREA)));
         rows.add(executionPublishRow("CONTROL", "管控区间上游互通出口", "", upstreamExitControl));
         rows.add(executionPublishRow("CONTROL", "管控区间上游互通入口收费站", "", upstreamTollgateControl));
         return rows;
     }
 
     private Map<String, Object> executionPublishRow(String itemType, String target, String deviceId, String content) {
+        return executionPublishRow(itemType, target, deviceId, content, "");
+    }
+
+    private Map<String, Object> executionPublishRow(String itemType, String target, String deviceId, String content, String fixedContent) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("itemType", itemType);
         row.put("target", target);
         row.put("deviceId", deviceId == null ? "" : deviceId);
         row.put("content", content == null ? "" : content);
+        if ("VMS".equalsIgnoreCase(itemType)) {
+            row.put("fixedContent", fixedContent == null ? "" : fixedContent);
+        }
         return row;
     }
 
@@ -1630,6 +1649,41 @@ public class WindControlExecutionService {
             case 4 -> "蓝色警戒";
             case 5 -> "正常通行";
             default -> "未知";
+        };
+    }
+
+    private String resolveFixedVmsContent(int controlLevel, String vmsKind) {
+        return switch (controlLevel) {
+            case 1 -> switch (vmsKind) {
+                case VMS_KIND_UPSTREAM_TOLLGATE -> "主线高速大风红色预警，车辆禁止驶入。\n入口提示：小型车禁行，大型车禁行。";
+                case VMS_KIND_UPSTREAM_EXIT -> "前方大风，所有车辆靠右驶离高速。\n出口提示：小型车禁行，大型车禁行。";
+                case VMS_KIND_INSIDE_SEGMENT -> "当前路段大风红色预警，车辆紧急避险。\n路段提示：小型车避险，大型车避险。";
+                case VMS_KIND_UPSTREAM_SERVICE_AREA -> "当前路段大风红色预警，车辆服务区避险。\n服务区提示：小型车避险，大型车避险。";
+                default -> "";
+            };
+            case 2 -> switch (vmsKind) {
+                case VMS_KIND_UPSTREAM_TOLLGATE -> "主线高速大风橙色预警，小车预约大型车禁行。\n入口提示：车辆预约，小型车限速60，大型车禁行。";
+                case VMS_KIND_UPSTREAM_EXIT -> "前方大风橙色预警，小车预约大车驶离高速。\n出口提示：车辆预约，小型车限速60，大型车禁行。";
+                case VMS_KIND_INSIDE_SEGMENT -> "当前路段大风橙色预警，大车紧急避险。\n路段提示：小型车限速60，大型车避险。";
+                case VMS_KIND_UPSTREAM_SERVICE_AREA -> "当前路段大风橙色预警，大车紧急避险。\n服务区提示：小型车限速60，大型车避险。";
+                default -> "";
+            };
+            case 3 -> switch (vmsKind) {
+                case VMS_KIND_UPSTREAM_TOLLGATE -> "主线高速大风黄色预警，仅预约车辆通行。\n入口提示：车辆预约，小型车限速60，大型车限速40。";
+                case VMS_KIND_UPSTREAM_EXIT -> "前方大风黄色预警，未预约车辆驶离高速。\n出口提示：车辆预约，小型车限速60，大型车限速40。";
+                case VMS_KIND_INSIDE_SEGMENT -> "当前路段大风黄色预警，请按限速行驶。\n路段提示：小型车限速60，大型车限速40。";
+                case VMS_KIND_UPSTREAM_SERVICE_AREA -> "当前路段大风黄色预警，请按限速行驶。\n服务区提示：小型车限速60，大型车限速40。";
+                default -> "";
+            };
+            case 4 -> switch (vmsKind) {
+                case VMS_KIND_UPSTREAM_TOLLGATE -> "主线高速大风，请遵循指引安全驾驶。\n入口提示：小型车限速80，大型车限速60。";
+                case VMS_KIND_UPSTREAM_EXIT -> "前方大风，请遵循指引安全驾驶。\n出口提示：小型车限速80，大型车限速60。";
+                case VMS_KIND_INSIDE_SEGMENT -> "当前路段大风，请遵循指示安全驾驶。\n路段提示：小型车限速80，大型车限速60。";
+                case VMS_KIND_UPSTREAM_SERVICE_AREA -> "当前路段大风，请遵循指示安全驾驶。\n服务区提示：小型车限速80，大型车限速60。";
+                default -> "";
+            };
+            case 5 -> GREEN_ALERT_FIXED_VMS_CONTENT;
+            default -> "";
         };
     }
 
