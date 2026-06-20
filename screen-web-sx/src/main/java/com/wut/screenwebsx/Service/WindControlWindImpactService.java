@@ -309,15 +309,45 @@ public class WindControlWindImpactService {
             return Map.of();
         }
 
+        Map<String, String> planTexts = resolveControlLevelPlanTexts(controlLevel);
         Map<String, Object> result = new LinkedHashMap<>();
         putVmsItemIfNotBlank(result, controlInterval, sendStakeRange, sendRange, VMS_INSIDE_SEGMENT,
-                resolveFixedVmsContent(controlLevel, VMS_INSIDE_SEGMENT));
+                resolveFixedVmsContent(controlLevel, VMS_INSIDE_SEGMENT, planTexts.get(VMS_INSIDE_SEGMENT)));
         putVmsItemIfNotBlank(result, controlInterval, sendStakeRange, sendRange, VMS_UPSTREAM_EXIT,
-                resolveFixedVmsContent(controlLevel, VMS_UPSTREAM_EXIT));
+                resolveFixedVmsContent(controlLevel, VMS_UPSTREAM_EXIT, planTexts.get(VMS_UPSTREAM_EXIT)));
         putVmsItemIfNotBlank(result, controlInterval, sendStakeRange, sendRange, VMS_UPSTREAM_TOLLGATE,
-                resolveFixedVmsContent(controlLevel, VMS_UPSTREAM_TOLLGATE));
+                resolveFixedVmsContent(controlLevel, VMS_UPSTREAM_TOLLGATE, planTexts.get(VMS_UPSTREAM_TOLLGATE)));
         putVmsItemIfNotBlank(result, controlInterval, sendStakeRange, sendRange, VMS_UPSTREAM_SERVICE_AREA,
-                resolveFixedVmsContent(controlLevel, VMS_UPSTREAM_SERVICE_AREA));
+                resolveFixedVmsContent(controlLevel, VMS_UPSTREAM_SERVICE_AREA, planTexts.get(VMS_UPSTREAM_SERVICE_AREA)));
+        return result;
+    }
+
+    private Map<String, String> resolveControlLevelPlanTexts(int controlLevel) {
+        Map<String, Object> template = stateService.getControlPlanLibrary().get(controlLevel);
+        if (template == null || template.isEmpty()) {
+            return Map.of();
+        }
+        String inside = materializePlanText(
+                stateService.stringValue(template.get("riskSectionPlan")),
+                stateService.stringValue(template.get("riskSectionPlan"))
+        );
+        String exit = materializePlanText(
+                stateService.stringValue(template.get("upstreamExitPlan")),
+                inside
+        );
+        String tollgate = materializePlanText(
+                stateService.stringValue(template.get("upstreamEntryPlan")),
+                inside
+        );
+        String serviceArea = materializePlanText(
+                stateService.stringValue(template.get("upstreamServiceAreaPlan")),
+                inside
+        );
+        Map<String, String> result = new LinkedHashMap<>();
+        result.put(VMS_INSIDE_SEGMENT, inside);
+        result.put(VMS_UPSTREAM_EXIT, exit);
+        result.put(VMS_UPSTREAM_TOLLGATE, tollgate);
+        result.put(VMS_UPSTREAM_SERVICE_AREA, serviceArea);
         return result;
     }
 
@@ -439,6 +469,19 @@ public class WindControlWindImpactService {
     }
 
     private FixedVmsContent resolveFixedVmsContent(int controlLevel, String vmsKind) {
+        return resolveDefaultFixedVmsContent(controlLevel, vmsKind);
+    }
+
+    private FixedVmsContent resolveFixedVmsContent(int controlLevel, String vmsKind, String planTipContent) {
+        FixedVmsContent defaults = resolveDefaultFixedVmsContent(controlLevel, vmsKind);
+        String tip = planTipContent == null ? "" : planTipContent.trim();
+        if (tip.isBlank()) {
+            return defaults;
+        }
+        return new FixedVmsContent(defaults.mainContent(), tip);
+    }
+
+    private FixedVmsContent resolveDefaultFixedVmsContent(int controlLevel, String vmsKind) {
         return switch (controlLevel) {
             case 1 -> switch (vmsKind) {
                 case VMS_UPSTREAM_TOLLGATE -> new FixedVmsContent("主线高速大风红色预警，车辆禁止驶入。", "入口提示：小型车禁行，大型车禁行。");
@@ -774,7 +817,7 @@ public class WindControlWindImpactService {
         if (sourceLevel <= 0) {
             throw new IllegalArgumentException("windLevelDesc not found: " + windLevelDesc);
         }
-        if (sourceLevel > controlLevel) {
+        if (sourceLevel < controlLevel) {
             throw new IllegalArgumentException("threshold update must be stricter, not looser");
         }
 
@@ -816,8 +859,8 @@ public class WindControlWindImpactService {
 
         Map<Integer, Map<String, Object>> controlPlanLibrary = stateService.getControlPlanLibrary();
         Map<String, Object> targetPlan = controlPlanLibrary.get(controlLevel);
-        if (targetPlan != null && sourceLevel < controlLevel) {
-            for (int level = sourceLevel; level <= controlLevel; level++) {
+        if (targetPlan != null && sourceLevel > controlLevel) {
+            for (int level = controlLevel; level <= sourceLevel; level++) {
                 Map<String, Object> plan = controlPlanLibrary.get(level);
                 if (plan == null) {
                     continue;
@@ -836,7 +879,7 @@ public class WindControlWindImpactService {
         result.put("controlLevel", controlLevel);
         result.put("windLevelDesc", windLevelDesc);
         result.put("affectedWindLevels", affectedWindLevels.stream().sorted().toList());
-        result.put("affectedControlLevels", sourceLevel < controlLevel ? buildLevelRange(sourceLevel, controlLevel) : List.of(controlLevel));
+        result.put("affectedControlLevels", sourceLevel > controlLevel ? buildLevelRange(controlLevel, sourceLevel) : List.of(controlLevel));
         if (reqPassenger != null) {
             result.put("passengerSpeedLimit", reqPassenger);
         }
