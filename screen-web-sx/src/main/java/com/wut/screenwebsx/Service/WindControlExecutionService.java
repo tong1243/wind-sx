@@ -41,6 +41,36 @@ public class WindControlExecutionService {
     private static final String VMS_KIND_UPSTREAM_EXIT = "UPSTREAM_EXIT";
     private static final String VMS_KIND_UPSTREAM_TOLLGATE = "UPSTREAM_TOLLGATE";
     private static final String VMS_KIND_UPSTREAM_SERVICE_AREA = "UPSTREAM_SERVICE_AREA";
+    private static final String VMS_LINE_TURPAN = "T";
+    private static final String VMS_LINE_HAMI = "H";
+    private static final List<ExecutionVmsDevice> EXECUTION_VMS_DEVICES = List.of(
+            new ExecutionVmsDevice(VMS_LINE_TURPAN, "T10013R", "K3282+300", VMS_KIND_UPSTREAM_TOLLGATE, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_TURPAN, "T10012C", "K3281+370", VMS_KIND_UPSTREAM_EXIT, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_TURPAN, "T10011", "K3263+200", VMS_KIND_INSIDE_SEGMENT, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_TURPAN, "T10010F", "K3243+100", VMS_KIND_UPSTREAM_SERVICE_AREA, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_TURPAN, "T10009", "K3234+000", VMS_KIND_INSIDE_SEGMENT, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_TURPAN, "T10008R", "K3198+000", VMS_KIND_UPSTREAM_TOLLGATE, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_TURPAN, "T10007C", "K3196+450", VMS_KIND_UPSTREAM_EXIT, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_TURPAN, "T10006F", "K3191+800", VMS_KIND_UPSTREAM_SERVICE_AREA, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_TURPAN, "T10005", "K3180+000", VMS_KIND_INSIDE_SEGMENT, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_TURPAN, "T10004F", "K3150+000", VMS_KIND_UPSTREAM_SERVICE_AREA, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_TURPAN, "T10003", "K3134+000", VMS_KIND_INSIDE_SEGMENT, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_TURPAN, "T10002R", "K3117+850", VMS_KIND_UPSTREAM_TOLLGATE, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_TURPAN, "T10001C", "K3110+500", VMS_KIND_UPSTREAM_EXIT, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_HAMI, "H10013C", "K3283+900", VMS_KIND_UPSTREAM_EXIT, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_HAMI, "H10012R", "K3283+000", VMS_KIND_UPSTREAM_TOLLGATE, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_HAMI, "H10011", "K3261+200", VMS_KIND_INSIDE_SEGMENT, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_HAMI, "H10010F", "K3245+200", VMS_KIND_UPSTREAM_SERVICE_AREA, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_HAMI, "H10009", "K3232+000", VMS_KIND_INSIDE_SEGMENT, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_HAMI, "H10008C", "K3199+500", VMS_KIND_UPSTREAM_EXIT, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_HAMI, "H10007R", "K3197+000", VMS_KIND_UPSTREAM_TOLLGATE, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_HAMI, "H10006F", "K3194+515", VMS_KIND_UPSTREAM_SERVICE_AREA, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_HAMI, "H10005", "K3180+000", VMS_KIND_INSIDE_SEGMENT, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_HAMI, "H10004F", "K3152+900", VMS_KIND_UPSTREAM_SERVICE_AREA, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_HAMI, "H10003", "K3132+000", VMS_KIND_INSIDE_SEGMENT, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_HAMI, "H10002C", "K3119+300", VMS_KIND_UPSTREAM_EXIT, "", ""),
+            new ExecutionVmsDevice(VMS_LINE_HAMI, "H10001R", "K3117+800", VMS_KIND_UPSTREAM_TOLLGATE, "", "")
+    );
 
     private final DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
             .withZone(ZoneId.systemDefault());
@@ -251,6 +281,9 @@ public class WindControlExecutionService {
                 direction,
                 nearestInterchangeStake,
                 fixedSegmentText,
+                stateService.stringValue(interval.get("intervalName")),
+                stateService.stringValue(interval.get("startStake")),
+                stateService.stringValue(interval.get("endStake")),
                 vmsTexts.get("vmsInsideSegment"),
                 vmsTexts.get("vmsUpstreamExit"),
                 vmsTexts.get("vmsUpstreamTollgate"),
@@ -421,6 +454,9 @@ public class WindControlExecutionService {
                 direction,
                 nearestInterchangeStake,
                 fixedSegmentText,
+                stateService.stringValue(interval.get("intervalName")),
+                stateService.stringValue(interval.get("startStake")),
+                stateService.stringValue(interval.get("endStake")),
                 vmsInsideSegment,
                 vmsUpstreamExit,
                 vmsUpstreamTollgate,
@@ -921,7 +957,7 @@ public class WindControlExecutionService {
             Map<String, Object> row = plan == null
                     ? buildEmptyAutoGenerationRow(resolveDashboardSegmentText(interval, direction), direction)
                     : buildAutoGenerationRowFromPlan(plan, interval);
-            alignAutoGenerationRecommendationWithFuture2h(row, interval, future2hRows);
+            alignAutoGenerationLevelsWithWindRows(row, interval, latestRows, future2hRows);
 
             if (!normalizedStatus.isBlank()) {
                 String rowStatus = stateService.stringValue(row.get("status")).toUpperCase(Locale.ROOT);
@@ -1105,6 +1141,9 @@ public class WindControlExecutionService {
                 direction,
                 nearestInterchangeStake,
                 segmentText,
+                stateService.stringValue(interval.get("intervalName")),
+                stateService.stringValue(interval.get("startStake")),
+                stateService.stringValue(interval.get("endStake")),
                 vmsTexts.get("vmsInsideSegment"),
                 vmsTexts.get("vmsUpstreamExit"),
                 vmsTexts.get("vmsUpstreamTollgate"),
@@ -1157,14 +1196,19 @@ public class WindControlExecutionService {
         int controlLevel = stateService.intValue(plan.get("controlLevel"),
                 stateService.intValue(plan.get("currentControlLevel"), stateService.getDefaultControlLevel()));
         table.put("planId", stateService.stringValue(plan.get("planId")));
+        table.put("timestamp", recommendationTimestamp);
         table.put("segment", stateService.stringValue(plan.get("segment")));
         table.put("segmentText", firstNonBlank(plan.get("segmentText"), plan.get("segment")));
         table.put("direction", stateService.intValue(plan.get("direction"), DIRECTION_HAMI));
         table.put("directionText", firstNonBlank(plan.get("directionText"), directionToText(stateService.intValue(plan.get("direction"), DIRECTION_HAMI))));
         table.put("controlLevel", controlLevel);
         table.put("controlLevelText", levelToText(controlLevel));
+        table.put("currentControlLevel", controlLevel);
+        table.put("currentControlLevelText", levelToText(controlLevel));
         table.put("recommendedControlLevel", recommendedLevel);
         table.put("recommendedControlLevelText", levelToText(recommendedLevel));
+        table.put("publishControlLevel", recommendedLevel);
+        table.put("publishControlLevelText", levelToText(recommendedLevel));
         table.put("publishTime", stateService.stringValue(plan.get("publishTime")));
         table.put("publishEndTime", stateService.stringValue(plan.get("publishEndTime")));
         table.put("durationHours", stateService.intValue(plan.get("durationHours"), DEFAULT_PLAN_WINDOW_HOURS));
@@ -1209,6 +1253,9 @@ public class WindControlExecutionService {
                 stateService.intValue(table.get("direction"), DIRECTION_HAMI),
                 stateService.stringValue(plan.get("nearestUpstreamInterchangeStake")),
                 stateService.stringValue(table.get("segmentText")),
+                stateService.stringValue(plan.get("intervalName")),
+                stateService.stringValue(plan.get("startStake")),
+                stateService.stringValue(plan.get("endStake")),
                 vmsInsideSegment,
                 vmsUpstreamExit,
                 vmsUpstreamTollgate,
@@ -1228,10 +1275,10 @@ public class WindControlExecutionService {
         );
         table.put("publishRows", publishRows);
         table.put("vmsPublishRows", filterVmsPublishRows(publishRows));
-        table.put("vmsInsideSegmentDeviceId", resolveFirstDeviceIdBySegment(vmsFacilityItems, "区段"));
-        table.put("vmsUpstreamExitDeviceId", resolveFirstDeviceIdBySegment(vmsFacilityItems, "出口"));
-        table.put("vmsUpstreamTollgateDeviceId", resolveFirstDeviceIdBySegment(vmsFacilityItems, "入口", "收费站"));
-        table.put("vmsUpstreamServiceAreaDeviceId", resolveFirstDeviceIdBySegment(vmsFacilityItems, "服务区"));
+        table.put("vmsInsideSegmentDeviceId", resolveFirstDeviceIdByType(vmsFacilityItems, VMS_KIND_INSIDE_SEGMENT, "区段", "区间内"));
+        table.put("vmsUpstreamExitDeviceId", resolveFirstDeviceIdByType(vmsFacilityItems, VMS_KIND_UPSTREAM_EXIT, "出口"));
+        table.put("vmsUpstreamTollgateDeviceId", resolveFirstDeviceIdByType(vmsFacilityItems, VMS_KIND_UPSTREAM_TOLLGATE, "入口", "收费站"));
+        table.put("vmsUpstreamServiceAreaDeviceId", resolveFirstDeviceIdByType(vmsFacilityItems, VMS_KIND_UPSTREAM_SERVICE_AREA, "服务区"));
         List<Map<String, Object>> allDevicePublishRows = buildAllDevicePublishInfoRows(
                 stateService.intValue(table.get("direction"), DIRECTION_HAMI),
                 stateService.stringValue(table.get("segmentText")),
@@ -1301,14 +1348,22 @@ public class WindControlExecutionService {
         return rows;
     }
 
-    private void alignAutoGenerationRecommendationWithFuture2h(Map<String, Object> row,
-                                                               Map<String, Object> interval,
-                                                               List<WindData> future2hRows) {
+    private void alignAutoGenerationLevelsWithWindRows(Map<String, Object> row,
+                                                       Map<String, Object> interval,
+                                                       List<WindData> latestRows,
+                                                       List<WindData> future2hRows) {
         int direction = stateService.intValue(row.get("direction"), stateService.intValue(interval.get("direction"), DIRECTION_HAMI));
         String[] stakes = resolveSpatiotemporalStakes(row, interval);
         String startStake = firstNonBlank(stakes[0], row.get("startStake"), interval.get("startStake"));
         String endStake = firstNonBlank(stakes[1], row.get("endStake"), interval.get("endStake"));
+        int currentWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, latestRows);
         int future2hWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, future2hRows);
+        if (currentWindLevel > 0) {
+            int controlLevel = resolveConfiguredControlLevel(currentWindLevel);
+            row.put("realtimeWindLevel", currentWindLevel);
+            row.put("controlLevel", controlLevel);
+            row.put("controlLevelText", levelToText(controlLevel));
+        }
         if (future2hWindLevel <= 0) {
             row.put("forecastMaxWindLevel", null);
             row.put("recommendedControlLevel", null);
@@ -1425,13 +1480,17 @@ public class WindControlExecutionService {
                 interval == null ? null : interval.get("segmentText"),
                 interval == null ? null : interval.get("segment")
         ));
-        if (segmentText.contains("一碗泉服务区-红山口服务区")) {
+        if (segmentText.contains("一碗泉服务区-红山口服务区")
+                || segmentText.contains("红山口互通-沙尔湖服务区")) {
             return "K3197-K3204";
         }
-        if (segmentText.contains("沙尔湖服务区-红山口互通")) {
+        if (segmentText.contains("沙尔湖服务区-红山口互通")
+                || segmentText.contains("红山口互通-红山口服务区")
+                || segmentText.contains("红山口服务区-红山口互通")) {
             return "K3192-K3197";
         }
-        if (segmentText.contains("七克台互通-沙尔湖服务区")) {
+        if (segmentText.contains("七克台互通-沙尔湖服务区")
+                || segmentText.contains("红山口服务区-一碗泉服务区")) {
             return "K3178-K3192";
         }
         return "";
@@ -1479,6 +1538,9 @@ public class WindControlExecutionService {
                 direction,
                 stateService.stringValue(plan.get("nearestUpstreamInterchangeStake")),
                 segmentText,
+                stateService.stringValue(plan.get("intervalName")),
+                stateService.stringValue(plan.get("startStake")),
+                stateService.stringValue(plan.get("endStake")),
                 vmsTexts.get("vmsInsideSegment"),
                 vmsTexts.get("vmsUpstreamExit"),
                 vmsTexts.get("vmsUpstreamTollgate"),
@@ -1495,10 +1557,10 @@ public class WindControlExecutionService {
                                                                 String upstreamExitControl,
                                                                 String upstreamTollgateControl,
                                                                 int controlLevel) {
-        String insideDeviceIds = resolveFirstDeviceIdBySegment(vmsFacilityItems, "区段");
-        String exitDeviceIds = resolveFirstDeviceIdBySegment(vmsFacilityItems, "出口");
-        String tollgateDeviceIds = resolveFirstDeviceIdBySegment(vmsFacilityItems, "入口", "收费站");
-        String serviceAreaDeviceIds = resolveFirstDeviceIdBySegment(vmsFacilityItems, "服务区");
+        String insideDeviceIds = resolveFirstDeviceIdByType(vmsFacilityItems, VMS_KIND_INSIDE_SEGMENT, "区段", "区间内");
+        String exitDeviceIds = resolveFirstDeviceIdByType(vmsFacilityItems, VMS_KIND_UPSTREAM_EXIT, "出口");
+        String tollgateDeviceIds = resolveFirstDeviceIdByType(vmsFacilityItems, VMS_KIND_UPSTREAM_TOLLGATE, "入口", "收费站");
+        String serviceAreaDeviceIds = resolveFirstDeviceIdByType(vmsFacilityItems, VMS_KIND_UPSTREAM_SERVICE_AREA, "服务区");
         List<Map<String, Object>> rows = new ArrayList<>();
         rows.add(executionPublishRow("VMS", "管控区间内VMS", insideDeviceIds, vmsInsideSegment,
                 resolveFixedVmsContent(controlLevel, VMS_KIND_INSIDE_SEGMENT)));
@@ -1726,6 +1788,20 @@ public class WindControlExecutionService {
             }
         }
         return "";
+    }
+
+    private String resolveFirstDeviceIdByType(List<Map<String, Object>> items, String targetType, String... fallbackKeywords) {
+        for (Map<String, Object> row : items) {
+            String rowType = stateService.stringValue(row.get("targetDeviceType"));
+            if (!targetType.equals(rowType)) {
+                continue;
+            }
+            String deviceId = firstNonBlank(row.get("deviceId"), row.get("facilityId"));
+            if (!deviceId.isBlank()) {
+                return deviceId;
+            }
+        }
+        return resolveFirstDeviceIdBySegment(items, fallbackKeywords);
     }
 
     /**
@@ -2159,14 +2235,33 @@ public class WindControlExecutionService {
      * 生成设施级 VMS 发布列表。文案仅来自 4.4.2 预案库当前等级。
      */
     private List<Map<String, Object>> buildVmsPublishItems(int direction,
-                                                            String nearestInterchangeStake,
-                                                            String segmentText,
-                                                            String vmsInsideSegment,
-                                                            String vmsUpstreamExit,
-                                                            String vmsUpstreamTollgate,
-                                                            String vmsUpstreamServiceArea,
-                                                            boolean includeUpstreamServiceArea) {
+                                                             String nearestInterchangeStake,
+                                                             String segmentText,
+                                                             String intervalName,
+                                                             String startStake,
+                                                             String endStake,
+                                                             String vmsInsideSegment,
+                                                             String vmsUpstreamExit,
+                                                             String vmsUpstreamTollgate,
+                                                             String vmsUpstreamServiceArea,
+                                                             boolean includeUpstreamServiceArea) {
         List<Map<String, Object>> rows = new ArrayList<>();
+        String sendStakeRange = resolveExecutionSendStakeRange(intervalName, startStake, endStake);
+        double[] sendRange = parseStakeRange(sendStakeRange);
+        if (sendRange != null) {
+            addExecutionVmsDeviceRow(rows, direction, intervalName, sendStakeRange, sendRange,
+                    segmentText, VMS_KIND_INSIDE_SEGMENT, "管控区间内VMS", vmsInsideSegment);
+            addExecutionVmsDeviceRow(rows, direction, intervalName, sendStakeRange, sendRange,
+                    segmentText, VMS_KIND_UPSTREAM_EXIT, "管控区间上游互通出口VMS", vmsUpstreamExit);
+            addExecutionVmsDeviceRow(rows, direction, intervalName, sendStakeRange, sendRange,
+                    segmentText, VMS_KIND_UPSTREAM_TOLLGATE, "管控区间上游互通入口收费站VMS", vmsUpstreamTollgate);
+            addExecutionVmsDeviceRow(rows, direction, intervalName, sendStakeRange, sendRange,
+                    segmentText, VMS_KIND_UPSTREAM_SERVICE_AREA, "服务区前VMS", vmsUpstreamServiceArea);
+        }
+        if (!rows.isEmpty()) {
+            return rows;
+        }
+
         List<Map<String, Object>> facilities = getPublishFacilitiesForExecution();
         String targetInterchangeName = extractFirstInterchangeName(segmentText);
         String normalizedTargetInterchange = normalizeTextForMatch(targetInterchangeName);
@@ -2267,6 +2362,288 @@ public class WindControlExecutionService {
             rows.add(row);
         }
         return rows;
+    }
+
+    private void addExecutionVmsDeviceRow(List<Map<String, Object>> rows,
+                                          int direction,
+                                          String intervalName,
+                                          String sendStakeRange,
+                                          double[] sendRange,
+                                          String segmentText,
+                                          String deviceType,
+                                          String target,
+                                          String message) {
+        if (message == null || message.isBlank()) {
+            return;
+        }
+        ExecutionVmsDevice device = resolveExecutionVmsDevice(direction, intervalName, sendStakeRange, sendRange, segmentText, deviceType);
+        if (device == null) {
+            return;
+        }
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("facilityId", device.deviceId());
+        row.put("deviceId", device.deviceId());
+        row.put("pileNo", device.stake());
+        row.put("stake", device.stake());
+        row.put("segment", target);
+        row.put("target", target);
+        row.put("targetDeviceType", deviceType);
+        row.put("publishMessage", message);
+        rows.add(row);
+    }
+
+    private ExecutionVmsDevice resolveExecutionVmsDevice(int direction,
+                                                         String intervalName,
+                                                         String sendStakeRange,
+                                                         double[] sendRange,
+                                                         String segmentText,
+                                                         String deviceType) {
+        String line = resolveExecutionVmsLine(direction, intervalName);
+        List<ExecutionVmsDevice> sourceDevices = resolveExecutionVmsDevicesFromRuntimeFacilities();
+        if (sourceDevices.isEmpty()) {
+            sourceDevices = EXECUTION_VMS_DEVICES;
+        }
+        List<ExecutionVmsDevice> candidates = sourceDevices.stream()
+                .filter(device -> line.equals(device.line()))
+                .filter(device -> deviceType.equals(device.type()))
+                .filter(device -> parseStakeValue(device.stake()) != null)
+                .toList();
+        if (candidates.isEmpty()) {
+            return null;
+        }
+        ExecutionVmsDevice semanticDevice = selectExecutionDeviceByBusinessText(candidates, deviceType, segmentText);
+        if (semanticDevice != null) {
+            return semanticDevice;
+        }
+        boolean upstreamLowerSide = isExecutionUpstreamLowerSide(sendStakeRange);
+        if (VMS_KIND_INSIDE_SEGMENT.equals(deviceType)) {
+            ExecutionVmsDevice inside = candidates.stream()
+                    .filter(device -> isExecutionStakeInside(device, sendRange))
+                    .min((left, right) -> compareExecutionInsideDevice(left, right, upstreamLowerSide))
+                    .orElse(null);
+            if (inside != null) {
+                return inside;
+            }
+        }
+        return candidates.stream()
+                .filter(device -> isExecutionUpstreamDevice(device, sendRange, upstreamLowerSide))
+                .min((left, right) -> compareExecutionUpstreamDevice(left, right, upstreamLowerSide))
+                .orElseGet(() -> candidates.stream()
+                        .min(Comparator.comparingDouble(device -> executionStakeDistance(device, sendRange)))
+                        .orElse(null));
+    }
+
+    private List<ExecutionVmsDevice> resolveExecutionVmsDevicesFromRuntimeFacilities() {
+        List<ExecutionVmsDevice> rows = new ArrayList<>();
+        for (Map<String, Object> facility : getPublishFacilitiesForExecution()) {
+            String deviceId = stateService.stringValue(facility.get("facilityId"));
+            String stake = stateService.stringValue(facility.get("pileNo"));
+            int direction = stateService.intValue(facility.get("direction"), -1);
+            String segment = stateService.stringValue(facility.get("segment"));
+            String interchangeName = stateService.stringValue(facility.get("interchangeName"));
+            String type = inferExecutionVmsType(deviceId, segment);
+            if (deviceId.isBlank() || stake.isBlank() || type.isBlank()) {
+                continue;
+            }
+            String line = direction == DIRECTION_TURPAN ? VMS_LINE_TURPAN : VMS_LINE_HAMI;
+            rows.add(new ExecutionVmsDevice(line, deviceId, stake, type, segment, interchangeName));
+        }
+        return rows;
+    }
+
+    private ExecutionVmsDevice selectExecutionDeviceByBusinessText(List<ExecutionVmsDevice> candidates,
+                                                                   String deviceType,
+                                                                   String segmentText) {
+        String segmentKey = normalizeSegmentLookupKey(segmentText);
+        if (segmentKey.isBlank()) {
+            return null;
+        }
+        if (VMS_KIND_INSIDE_SEGMENT.equals(deviceType)) {
+            return candidates.stream()
+                    .filter(device -> normalizedDeviceSegment(device).contains(segmentKey)
+                            || segmentKey.contains(normalizedDeviceSegment(device)))
+                    .findFirst()
+                    .orElse(null);
+        }
+        String interchangeName = extractFirstInterchangeName(segmentText);
+        if ((VMS_KIND_UPSTREAM_EXIT.equals(deviceType) || VMS_KIND_UPSTREAM_TOLLGATE.equals(deviceType))
+                && !interchangeName.isBlank()) {
+            String interchangeKey = normalizeSegmentLookupKey(interchangeName);
+            return candidates.stream()
+                    .filter(device -> normalizedDeviceInterchange(device).contains(interchangeKey)
+                            || normalizedDeviceSegment(device).contains(interchangeKey))
+                    .findFirst()
+                    .orElse(null);
+        }
+        if (VMS_KIND_UPSTREAM_SERVICE_AREA.equals(deviceType)) {
+            String serviceAreaName = extractLastServiceAreaName(segmentText);
+            if (!serviceAreaName.isBlank()) {
+                String serviceAreaKey = normalizeSegmentLookupKey(serviceAreaName);
+                return candidates.stream()
+                        .filter(device -> normalizedDeviceSegment(device).contains(serviceAreaKey))
+                        .findFirst()
+                        .orElse(null);
+            }
+        }
+        return null;
+    }
+
+    private String normalizedDeviceSegment(ExecutionVmsDevice device) {
+        return normalizeSegmentLookupKey(device.segment());
+    }
+
+    private String normalizedDeviceInterchange(ExecutionVmsDevice device) {
+        return normalizeSegmentLookupKey(device.interchangeName());
+    }
+
+    private String extractLastServiceAreaName(String text) {
+        String value = stateService.stringValue(text);
+        String result = "";
+        Matcher matcher = Pattern.compile("[\\u4e00-\\u9fa5]+服务区").matcher(value);
+        while (matcher.find()) {
+            result = matcher.group();
+        }
+        return result;
+    }
+
+    private String inferExecutionVmsType(String deviceId, String segment) {
+        String id = stateService.stringValue(deviceId).toUpperCase(Locale.ROOT);
+        if (id.endsWith("F")) {
+            return VMS_KIND_UPSTREAM_SERVICE_AREA;
+        }
+        if (id.endsWith("C")) {
+            return VMS_KIND_UPSTREAM_EXIT;
+        }
+        if (id.endsWith("R")) {
+            return VMS_KIND_UPSTREAM_TOLLGATE;
+        }
+        String text = stateService.stringValue(segment);
+        if (text.contains("服务区前") || text.contains("服务区入口")) {
+            return VMS_KIND_UPSTREAM_SERVICE_AREA;
+        }
+        if (text.contains("出口")) {
+            return VMS_KIND_UPSTREAM_EXIT;
+        }
+        if (text.contains("入口") || text.contains("收费站")) {
+            return VMS_KIND_UPSTREAM_TOLLGATE;
+        }
+        return VMS_KIND_INSIDE_SEGMENT;
+    }
+
+    private String resolveExecutionVmsLine(int direction, String intervalName) {
+        String interval = stateService.stringValue(intervalName);
+        if (interval.startsWith("2-")) {
+            return VMS_LINE_HAMI;
+        }
+        if (interval.startsWith("1-")) {
+            return VMS_LINE_TURPAN;
+        }
+        return direction == DIRECTION_TURPAN ? VMS_LINE_TURPAN : VMS_LINE_HAMI;
+    }
+
+    private String resolveExecutionSendStakeRange(String intervalName, String startStake, String endStake) {
+        String interval = stateService.stringValue(intervalName);
+        if ("1-1".equals(interval) || "2-1".equals(interval)) {
+            return "K3203-K3198";
+        }
+        if ("1-2".equals(interval) || "2-2".equals(interval)) {
+            return "K3197-K3194";
+        }
+        if ("1-3".equals(interval) || "2-3".equals(interval)) {
+            return "K3193-K3178";
+        }
+        String resolvedStart = firstNonBlank(startStake, extractStake(resolveSpatiotemporalStakeRange(Map.of("intervalName", interval)), true));
+        String resolvedEnd = firstNonBlank(endStake, extractStake(resolveSpatiotemporalStakeRange(Map.of("intervalName", interval)), false));
+        if (resolvedStart.isBlank() || resolvedEnd.isBlank()) {
+            return "";
+        }
+        return resolvedStart + "-" + resolvedEnd;
+    }
+
+    private double[] parseStakeRange(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        Matcher matcher = stakePattern.matcher(text.toUpperCase(Locale.ROOT));
+        List<Double> values = new ArrayList<>();
+        while (matcher.find()) {
+            Double value = parseStakeValue("K" + matcher.group(1));
+            if (value != null) {
+                values.add(value);
+            }
+        }
+        if (values.size() < 2) {
+            return null;
+        }
+        return new double[]{Math.min(values.get(0), values.get(1)), Math.max(values.get(0), values.get(1))};
+    }
+
+    private boolean isExecutionUpstreamLowerSide(String sendStakeRange) {
+        List<Double> values = orderedStakeValues(sendStakeRange);
+        if (values.size() < 2) {
+            return true;
+        }
+        return values.get(0) < values.get(1);
+    }
+
+    private List<Double> orderedStakeValues(String text) {
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
+        Matcher matcher = stakePattern.matcher(text.toUpperCase(Locale.ROOT));
+        List<Double> values = new ArrayList<>();
+        while (matcher.find()) {
+            Double value = parseStakeValue("K" + matcher.group(1));
+            if (value != null) {
+                values.add(value);
+            }
+        }
+        return values;
+    }
+
+    private boolean isExecutionStakeInside(ExecutionVmsDevice device, double[] sendRange) {
+        Double value = parseStakeValue(device.stake());
+        return value != null && value >= sendRange[0] && value <= sendRange[1];
+    }
+
+    private boolean isExecutionUpstreamDevice(ExecutionVmsDevice device, double[] sendRange, boolean upstreamLowerSide) {
+        Double value = parseStakeValue(device.stake());
+        if (value == null) {
+            return false;
+        }
+        return upstreamLowerSide ? value < sendRange[0] : value > sendRange[1];
+    }
+
+    private int compareExecutionInsideDevice(ExecutionVmsDevice left, ExecutionVmsDevice right, boolean upstreamLowerSide) {
+        Double leftValue = parseStakeValue(left.stake());
+        Double rightValue = parseStakeValue(right.stake());
+        if (leftValue == null || rightValue == null) {
+            return 0;
+        }
+        return upstreamLowerSide ? Double.compare(leftValue, rightValue) : Double.compare(rightValue, leftValue);
+    }
+
+    private int compareExecutionUpstreamDevice(ExecutionVmsDevice left, ExecutionVmsDevice right, boolean upstreamLowerSide) {
+        Double leftValue = parseStakeValue(left.stake());
+        Double rightValue = parseStakeValue(right.stake());
+        if (leftValue == null || rightValue == null) {
+            return 0;
+        }
+        return upstreamLowerSide ? Double.compare(rightValue, leftValue) : Double.compare(leftValue, rightValue);
+    }
+
+    private double executionStakeDistance(ExecutionVmsDevice device, double[] sendRange) {
+        Double value = parseStakeValue(device.stake());
+        if (value == null) {
+            return Double.MAX_VALUE;
+        }
+        if (value < sendRange[0]) {
+            return sendRange[0] - value;
+        }
+        if (value > sendRange[1]) {
+            return value - sendRange[1];
+        }
+        return 0D;
     }
 
     private boolean isInterchangeFacility(Map<String, Object> facility) {
@@ -3104,5 +3481,46 @@ public class WindControlExecutionService {
         }
         return startStake + "-" + endStake;
     }
-}
 
+    private static class ExecutionVmsDevice {
+        private final String line;
+        private final String deviceId;
+        private final String stake;
+        private final String type;
+        private final String segment;
+        private final String interchangeName;
+
+        private ExecutionVmsDevice(String line, String deviceId, String stake, String type, String segment, String interchangeName) {
+            this.line = line;
+            this.deviceId = deviceId;
+            this.stake = stake;
+            this.type = type;
+            this.segment = segment;
+            this.interchangeName = interchangeName;
+        }
+
+        private String line() {
+            return line;
+        }
+
+        private String deviceId() {
+            return deviceId;
+        }
+
+        private String stake() {
+            return stake;
+        }
+
+        private String type() {
+            return type;
+        }
+
+        private String segment() {
+            return segment;
+        }
+
+        private String interchangeName() {
+            return interchangeName;
+        }
+    }
+}

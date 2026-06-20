@@ -64,7 +64,7 @@ public class PostureWebService {
         PostureStatisticData statisticData = ModelTransformUtil.getPostureStatisticInstance();
         List<PostureFlowTypeData> flowTypeList = postureDataPreService.initFlowTypeDataList();
         recordInTransitTrajectoryToStatisticData(timestamp, statisticData);
-        Integer averageSpeed = calculateAverageSpeed(statisticData);
+        Double averageSpeed = calculateAverageSpeed(statisticData);
         Integer maxWindLevel = resolveMaxWindLevel(timestamp);
 //            recordPostureToFlowType(flowTypeList, DataParamParseUtil.parsePostureComp(posture.getComp()));
         return new PostureRealTimeDataResp(
@@ -76,9 +76,9 @@ public class PostureWebService {
         );
     }
 
-    private Integer calculateAverageSpeed(PostureStatisticData statisticData) {
+    private Double calculateAverageSpeed(PostureStatisticData statisticData) {
         if (statisticData == null) {
-            return 0;
+            return 0D;
         }
         double sum = 0D;
         int count = 0;
@@ -90,7 +90,7 @@ public class PostureWebService {
             sum += statisticData.getSpeedToEZ();
             count++;
         }
-        return count == 0 ? 0 : DataParamParseUtil.getRoundIntValue(sum / count);
+        return count == 0 ? 0D : DataParamParseUtil.getRoundValue(sum / count);
     }
 
     private Integer resolveMaxWindLevel(long timestamp) {
@@ -172,8 +172,8 @@ public class PostureWebService {
 
         statisticData.setFlowToEZ(DataParamParseUtil.getRoundValue(flowToEZ));
         statisticData.setFlowToWH(DataParamParseUtil.getRoundValue(flowToWH));
-        statisticData.setSpeedToEZ(speedToEZ == null ? 0 : DataParamParseUtil.getRoundIntValue(speedToEZ));
-        statisticData.setSpeedToWH(speedToWH == null ? 0 : DataParamParseUtil.getRoundIntValue(speedToWH));
+        statisticData.setSpeedToEZ(speedToEZ == null ? 0D : DataParamParseUtil.getRoundValue(speedToEZ));
+        statisticData.setSpeedToWH(speedToWH == null ? 0D : DataParamParseUtil.getRoundValue(speedToWH));
         statisticData.setCongestionToEZ(null);
         statisticData.setCongestionToWH(null);
     }
@@ -347,8 +347,8 @@ public class PostureWebService {
     public void recordPostureToStatisticData(PostureStatisticData statisticData, Posture posture) {
         statisticData.setFlowToEZ(DataParamParseUtil.getRoundValue(posture.getAvgQez()));
         statisticData.setFlowToWH(DataParamParseUtil.getRoundValue(posture.getAvgQwh()));
-        statisticData.setSpeedToEZ(DataParamParseUtil.getRoundIntValue(posture.getAvgVez() * 3.6));
-        statisticData.setSpeedToWH(DataParamParseUtil.getRoundIntValue(posture.getAvgVwh() * 3.6));
+        statisticData.setSpeedToEZ(DataParamParseUtil.getRoundValue(posture.getAvgVez() * 3.6));
+        statisticData.setSpeedToWH(DataParamParseUtil.getRoundValue(posture.getAvgVwh() * 3.6));
         statisticData.setCongestionToEZ(DataParamParseUtil.getRoundValue(posture.getAvgKez()));
         statisticData.setCongestionToWH(DataParamParseUtil.getRoundValue(posture.getAvgKwh()));
     }
@@ -374,8 +374,8 @@ public class PostureWebService {
 
         statisticData.setFlowToEZ(DataParamParseUtil.getRoundValue(avgStream));
         statisticData.setFlowToWH(DataParamParseUtil.getRoundValue(avgStream));
-        statisticData.setSpeedToEZ(DataParamParseUtil.getRoundIntValue(speedToEz));
-        statisticData.setSpeedToWH(DataParamParseUtil.getRoundIntValue(speedToWh));
+        statisticData.setSpeedToEZ(DataParamParseUtil.getRoundValue(speedToEz));
+        statisticData.setSpeedToWH(DataParamParseUtil.getRoundValue(speedToWh));
         statisticData.setCongestionToEZ(null);
         statisticData.setCongestionToWH(null);
 //        statisticData.setCongestionToEZ(DataParamParseUtil.getRoundValue(posture.getAvgKez()));

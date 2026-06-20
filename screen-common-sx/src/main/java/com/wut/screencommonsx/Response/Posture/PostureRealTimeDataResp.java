@@ -16,7 +16,7 @@ public class PostureRealTimeDataResp {
     @JsonProperty("flowTypeList")
     private List<PostureFlowTypeData> flowTypeList;     // 车辆数量和流量车型分类列表
     @JsonProperty("averageSpeed")
-    private Integer averageSpeed;                       // 双向平均速度
+    private Double averageSpeed;                        // 双向平均速度
     @JsonProperty("maxWindLevel")
     private Integer maxWindLevel;                       // 最大风力等级
     @JsonProperty("maxWindLevelText")

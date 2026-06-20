@@ -245,8 +245,8 @@ public class TrajFrameDataContext {
 // 异步操作压缩接收轨迹数据帧的时间
     public CompletableFuture<Void> asyncSendTrajFrameData(TrajFrameModel trajFrameModel, long originalTrajToWHCount, long originalTrajToEZCount, TrajDirectionRecord expireRecord, TrajDirectionRecord offlineRecord, List<TrajInfoData> trajListToWH, List<TrajInfoData> trajListToEZ) {
         return CompletableFuture.runAsync(() -> {
-            double avgSpeedToWH = calculateAverageSpeed(trajListToWH);
-            double avgSpeedToEZ = calculateAverageSpeed(trajListToEZ);
+            int avgSpeedToWH = (int) calculateAverageSpeed(trajListToWH);
+            int avgSpeedToEZ = (int) calculateAverageSpeed(trajListToEZ);
             TrajCarStatisticData statisticData = new TrajCarStatisticData(
                     trajFrameModel.getCarToWH(),
                     trajFrameModel.getCarToEZ(),
