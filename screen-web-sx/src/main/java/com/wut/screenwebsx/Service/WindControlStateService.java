@@ -321,6 +321,21 @@ public class WindControlStateService {
         }
     }
 
+    private Integer nullableInt(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number n) {
+            return n.intValue();
+        }
+        try {
+            String text = String.valueOf(value).trim();
+            return text.isBlank() ? null : Integer.parseInt(text);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     /**
      * 安全读取字符串。
      *
