@@ -1254,9 +1254,21 @@ public class WindControlExecutionService {
         row.put("deviceId", deviceId == null ? "" : deviceId);
         row.put("content", content == null ? "" : content);
         if ("VMS".equalsIgnoreCase(itemType)) {
-            row.put("fixedContent", fixedContent == null ? "" : fixedContent);
+            putFixedVmsContent(row, fixedContent);
         }
         return row;
+    }
+
+    private void putFixedVmsContent(Map<String, Object> row, String fixedContent) {
+        String text = fixedContent == null ? "" : fixedContent.trim();
+        if (text.isBlank()) {
+            row.put("fixedMainContent", "");
+            row.put("fixedTipContent", "");
+            return;
+        }
+        String[] lines = text.split("\\R", 2);
+        row.put("fixedMainContent", lines[0].trim());
+        row.put("fixedTipContent", lines.length > 1 ? lines[1].trim() : "");
     }
 
     private List<Map<String, Object>> filterVmsPublishRows(List<Map<String, Object>> publishRows) {
