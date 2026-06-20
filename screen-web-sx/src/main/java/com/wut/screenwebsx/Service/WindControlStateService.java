@@ -574,23 +574,7 @@ public class WindControlStateService {
         dutyTeams.clear();
         dutyTeams.addAll(persistenceService.listByCategory(CAT_TEAM));
 
-        controlPlanLibrary.clear();
-        for (Map<String, Object> row : persistenceService.listByCategory(CAT_CONTROL_PLAN)) {
-            int level = intValue(row.get("level"), -1);
-            if (level > 0) {
-                Map<String, Object> normalized = new LinkedHashMap<>(row);
-                normalized.put("description", stringValue(normalized.get("riskSectionPlan")));
-                controlPlanLibrary.put(level, normalized);
-            }
-        }
-
-        vmsContentLibrary.clear();
-        for (Map<String, Object> row : persistenceService.listByCategory(CAT_VMS_CONTENT)) {
-            int level = intValue(row.get("level"), -1);
-            if (level > 0) {
-                vmsContentLibrary.put(level, stringValue(row.get("content")));
-            }
-        }
+        refreshControlPlanLibraryFromStatic();
 
         dispatchPlanLibrary.clear();
         for (Map<String, Object> row : persistenceService.listByCategory(CAT_DISPATCH_PLAN)) {
@@ -828,50 +812,7 @@ public class WindControlStateService {
      * 3. control_interval_static（表1-5）
      */
     private void initPlanLibrary() {
-        List<ControlPlanStatic> plans = controlPlanStaticService.getEnabledPlans();
-        if (plans.isEmpty()) {
-            throw new IllegalStateException("control_plan_static 未查询到启用数据，请先执行静态表初始化 SQL。");
-        }
-
-        Map<Integer, SpeedThresholdStatic> thresholdByLevel = new LinkedHashMap<>();
-        for (SpeedThresholdStatic threshold : speedThresholdStaticService.getEnabledThresholds()) {
-            int level = parseControlLevelName(threshold.getControlLevelName(), -1);
-            if (level > 0) {
-                thresholdByLevel.put(level, threshold);
-            }
-        }
-
-        controlPlanLibrary.clear();
-        vmsContentLibrary.clear();
-        for (ControlPlanStatic plan : plans) {
-            int level = parseControlLevelName(plan.getControlLevelName(), -1);
-            if (level <= 0) {
-                continue;
-            }
-
-            SpeedThresholdStatic threshold = thresholdByLevel.get(level);
-            int minWind = threshold == null || threshold.getMinWindLevel() == null ? defaultMinWindByLevel(level) : threshold.getMinWindLevel();
-            int maxWind = threshold == null || threshold.getMaxWindLevel() == null ? defaultMaxWindByLevel(level) : threshold.getMaxWindLevel();
-            int passengerLimit = threshold == null ? defaultPassengerLimitByLevel(level) : intValue(threshold.getLightVehicleSpeedLimit(), defaultPassengerLimitByLevel(level));
-            int freightLimit = threshold == null ? defaultFreightLimitByLevel(level) : intValue(threshold.getHeavyVehicleSpeedLimit(), defaultFreightLimitByLevel(level));
-
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("level", level);
-            row.put("levelName", normalizeControlLevelName(plan.getControlLevelName()));
-            row.put("windLevelDesc", stringValue(plan.getWindLevelDesc()));
-            row.put("minWindLevel", minWind);
-            row.put("maxWindLevel", maxWind);
-            row.put("passengerSpeedLimit", passengerLimit);
-            row.put("freightSpeedLimit", freightLimit);
-            row.put("description", stringValue(plan.getRiskSectionPlan()));
-            row.put("riskSectionPlan", stringValue(plan.getRiskSectionPlan()));
-            row.put("upstreamExitPlan", stringValue(plan.getUpstreamExitPlan()));
-            row.put("upstreamEntryPlan", stringValue(plan.getUpstreamEntryPlan()));
-            row.put("upstreamServiceAreaPlan", stringValue(plan.getUpstreamServiceAreaPlan()));
-            controlPlanLibrary.put(level, row);
-
-            vmsContentLibrary.put(level, buildVmsContent(row));
-        }
+        refreshControlPlanLibraryFromStatic();
 
         dispatchPlanLibrary.clear();
         List<ControlIntervalStatic> intervals = controlIntervalStaticService.getEnabledIntervals();
@@ -906,6 +847,95 @@ public class WindControlStateService {
             row.put("warehouse", "");
             dispatchPlanLibrary.put(segment, row);
         }
+    }
+
+    /**
+     * 从 control_plan_static 刷新管控预案库；不使用 KV 快照或代码兜底方案。
+     */
+    public void refreshControlPlanLibraryFromStatic() {
+        List<ControlPlanStatic> plans = controlPlanStaticService.getEnabledPlans();
+        if (plans.isEmpty()) {
+            throw new IllegalStateException("control_plan_static 未查询到启用数据，请先执行静态表初始化 SQL。");
+        }
+
+        controlPlanLibrary.clear();
+        vmsContentLibrary.clear();
+        for (ControlPlanStatic plan : plans) {
+            int level = parseControlLevelName(plan.getControlLevelName(), -1);
+            if (level <= 0) {
+                continue;
+            }
+
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("level", level);
+            row.put("levelName", normalizeControlLevelName(plan.getControlLevelName()));
+            row.put("windLevelDesc", stringValue(plan.getWindLevelDesc()));
+            putIfNotNull(row, "minWindLevel", parseMinWindLevel(plan.getWindLevelDesc()));
+            putIfNotNull(row, "maxWindLevel", parseMaxWindLevel(plan.getWindLevelDesc()));
+            putIfNotNull(row, "passengerSpeedLimit", parseVehicleSpeedLimit(plan.getRiskSectionPlan(), "小型车"));
+            putIfNotNull(row, "freightSpeedLimit", parseVehicleSpeedLimit(plan.getRiskSectionPlan(), "大型车"));
+            row.put("description", stringValue(plan.getRiskSectionPlan()));
+            row.put("riskSectionPlan", stringValue(plan.getRiskSectionPlan()));
+            row.put("upstreamExitPlan", stringValue(plan.getUpstreamExitPlan()));
+            row.put("upstreamEntryPlan", stringValue(plan.getUpstreamEntryPlan()));
+            row.put("upstreamServiceAreaPlan", stringValue(plan.getUpstreamServiceAreaPlan()));
+            controlPlanLibrary.put(level, row);
+
+            vmsContentLibrary.put(level, buildVmsContent(row));
+        }
+    }
+
+    private void putIfNotNull(Map<String, Object> row, String key, Integer value) {
+        if (value != null) {
+            row.put(key, value);
+        }
+    }
+
+    private Integer parseMinWindLevel(String windLevelDesc) {
+        String text = stringValue(windLevelDesc).trim();
+        if (text.isBlank()) {
+            return null;
+        }
+        if (text.contains("以下")) {
+            return 0;
+        }
+        String[] numbers = text.replace("级", "").split("-");
+        return nullableInt(numbers[0]);
+    }
+
+    private Integer parseMaxWindLevel(String windLevelDesc) {
+        String text = stringValue(windLevelDesc).trim();
+        if (text.isBlank()) {
+            return null;
+        }
+        if (text.contains("以下")) {
+            Integer upper = nullableInt(text.replace("级以下", ""));
+            return upper == null ? null : Math.max(0, upper - 1);
+        }
+        String[] numbers = text.replace("级", "").split("-");
+        return nullableInt(numbers.length > 1 ? numbers[1] : numbers[0]);
+    }
+
+    private Integer parseVehicleSpeedLimit(String plan, String vehicleName) {
+        String text = stringValue(plan);
+        int vehicleIndex = text.indexOf(vehicleName);
+        if (vehicleIndex < 0) {
+            return null;
+        }
+        int speedIndex = text.indexOf("限速", vehicleIndex);
+        if (speedIndex < 0) {
+            return null;
+        }
+        StringBuilder digits = new StringBuilder();
+        for (int i = speedIndex + 2; i < text.length(); i++) {
+            char ch = text.charAt(i);
+            if (Character.isDigit(ch)) {
+                digits.append(ch);
+            } else if (digits.length() > 0) {
+                break;
+            }
+        }
+        return nullableInt(digits.toString());
     }
 
     /**

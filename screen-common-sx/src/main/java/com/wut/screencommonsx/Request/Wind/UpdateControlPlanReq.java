@@ -27,6 +27,9 @@ public class UpdateControlPlanReq {
     @Max(150)
     private Integer freightSpeedLimit;
 
+    @Size(max = 32)
+    private String windLevelDesc;
+
     @Size(max = 255)
     private String description;
 

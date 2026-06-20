@@ -1,5 +1,7 @@
 package com.wut.screenwebsx.Service;
 
+import com.wut.screendbmysqlsx.Model.ControlPlanStatic;
+import com.wut.screendbmysqlsx.Service.ControlPlanStaticService;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -15,12 +17,15 @@ import java.util.TreeSet;
 @Service
 public class WindControlPlanLibraryService {
     private final WindControlStateService stateService;
+    private final ControlPlanStaticService controlPlanStaticService;
 
     /**
      * 构造预案库服务并注入共享状态；该服务实现 4.4 模块预案与文案的维护逻辑。
      */
-    public WindControlPlanLibraryService(WindControlStateService stateService) {
+    public WindControlPlanLibraryService(WindControlStateService stateService,
+                                         ControlPlanStaticService controlPlanStaticService) {
         this.stateService = stateService;
+        this.controlPlanStaticService = controlPlanStaticService;
     }
 
     /**
@@ -40,19 +45,8 @@ public class WindControlPlanLibraryService {
      */
     public List<Map<String, Object>> listControlPlans() {
         List<Map<String, Object>> rows = new ArrayList<>();
-        for (Integer level : new TreeSet<>(stateService.getControlPlanLibrary().keySet())) {
-            Map<String, Object> row = new LinkedHashMap<>();
-            Map<String, Object> threshold = resolveThresholdSummaryByLevel(level);
-            if (!threshold.isEmpty()) {
-                row.put("levelName", threshold.get("controlLevelName"));
-                row.put("windLevelDesc", threshold.get("windLevelDesc"));
-                row.put("minWindLevel", threshold.get("minWindLevel"));
-                row.put("maxWindLevel", threshold.get("maxWindLevel"));
-                row.put("passengerSpeedLimit", threshold.get("passengerSpeedLimit"));
-                row.put("freightSpeedLimit", threshold.get("freightSpeedLimit"));
-            }
-            row.putAll(stateService.getControlPlanLibrary().get(level));
-            rows.add(row);
+        for (ControlPlanStatic plan : controlPlanStaticService.getEnabledPlans()) {
+            rows.add(toControlPlanRow(plan));
         }
         return rows;
     }
@@ -62,15 +56,13 @@ public class WindControlPlanLibraryService {
      */
     public Map<String, Object> updateControlPlanLevel(int level, Map<String, Object> body) {
         Map<String, Object> requestBody = body == null ? Map.of() : body;
-        Map<String, Object> existing = stateService.getControlPlanLibrary().get(level);
-        if (existing == null) {
+        ControlPlanStatic dbPlan = findControlPlanByLevel(level);
+        if (dbPlan == null) {
             throw new IllegalArgumentException("level not found: " + level);
         }
+        Map<String, Object> existing = toControlPlanRow(dbPlan);
 
-        stateService.mergeIfPresent(existing, requestBody, "minWindLevel");
-        stateService.mergeIfPresent(existing, requestBody, "maxWindLevel");
-        stateService.mergeIfPresent(existing, requestBody, "passengerSpeedLimit");
-        stateService.mergeIfPresent(existing, requestBody, "freightSpeedLimit");
+        stateService.mergeIfPresent(existing, requestBody, "windLevelDesc");
         stateService.mergeIfPresent(existing, requestBody, "riskSectionPlan");
         stateService.mergeIfPresent(existing, requestBody, "upstreamExitPlan");
         stateService.mergeIfPresent(existing, requestBody, "upstreamEntryPlan");
@@ -79,16 +71,26 @@ public class WindControlPlanLibraryService {
             existing.put("riskSectionPlan", requestBody.get("description"));
         }
         existing.put("description", stateService.stringValue(existing.get("riskSectionPlan")));
-        syncThresholdRowsFromPlan(level, existing);
 
-        // 4.4.3 要求：当预案等级规则变化时，VMS 发布内容自动联动更新。
-        String autoContent = buildAutoVmsContent(level, existing);
+        ControlPlanStatic updated = new ControlPlanStatic();
+        updated.setControlLevelName(dbPlan.getControlLevelName());
+        updated.setWindLevelDesc(stateService.stringValue(existing.get("windLevelDesc")));
+        updated.setRiskSectionPlan(stateService.stringValue(existing.get("riskSectionPlan")));
+        updated.setUpstreamExitPlan(stateService.stringValue(existing.get("upstreamExitPlan")));
+        updated.setUpstreamEntryPlan(stateService.stringValue(existing.get("upstreamEntryPlan")));
+        updated.setUpstreamServiceAreaPlan(stateService.stringValue(existing.get("upstreamServiceAreaPlan")));
+        boolean dbUpdated = controlPlanStaticService.updateEnabledByControlLevelName(updated);
+        if (!dbUpdated) {
+            throw new IllegalStateException("update control_plan_static failed: " + dbPlan.getControlLevelName());
+        }
+
+        stateService.refreshControlPlanLibraryFromStatic();
+        String autoContent = buildPlanVmsContent(existing);
         stateService.getVmsContentLibrary().put(level, autoContent);
         syncPublishFacilityPostInformation(autoContent);
-        Map<String, Object> dbSync = stateService.getPersistenceService().updateStaticControlPlanAndThreshold(level, existing);
         stateService.persistSnapshot();
         Map<String, Object> response = buildControlPlanResponse(level, existing);
-        response.put("dbSync", dbSync);
+        response.put("dbSync", Map.of("controlPlanStaticUpdated", true));
         return response;
     }
 
@@ -97,16 +99,8 @@ public class WindControlPlanLibraryService {
      */
     public Map<String, Object> buildControlPlanResponse(int level, Map<String, Object> source) {
         Map<String, Object> row = new LinkedHashMap<>();
-        Map<String, Object> threshold = resolveThresholdSummaryByLevel(level);
-        if (!threshold.isEmpty()) {
-            row.put("levelName", threshold.get("controlLevelName"));
-            row.put("windLevelDesc", threshold.get("windLevelDesc"));
-            row.put("minWindLevel", threshold.get("minWindLevel"));
-            row.put("maxWindLevel", threshold.get("maxWindLevel"));
-            row.put("passengerSpeedLimit", threshold.get("passengerSpeedLimit"));
-            row.put("freightSpeedLimit", threshold.get("freightSpeedLimit"));
-        }
         row.putAll(source);
+        row.put("level", level);
         row.put("description", stateService.stringValue(row.get("riskSectionPlan")));
         return row;
     }
@@ -232,6 +226,115 @@ public class WindControlPlanLibraryService {
         for (Map<String, Object> facility : stateService.getPublishFacilities()) {
             facility.put("postInformation", finalContent);
         }
+    }
+
+    private ControlPlanStatic findControlPlanByLevel(int level) {
+        for (ControlPlanStatic plan : controlPlanStaticService.getEnabledPlans()) {
+            if (parseControlLevelName(plan.getControlLevelName()) == level) {
+                return plan;
+            }
+        }
+        return null;
+    }
+
+    private Map<String, Object> toControlPlanRow(ControlPlanStatic plan) {
+        int level = parseControlLevelName(plan.getControlLevelName());
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("level", level);
+        row.put("levelName", stateService.stringValue(plan.getControlLevelName()));
+        row.put("windLevelDesc", stateService.stringValue(plan.getWindLevelDesc()));
+        putIfNotNull(row, "minWindLevel", parseMinWindLevel(plan.getWindLevelDesc()));
+        putIfNotNull(row, "maxWindLevel", parseMaxWindLevel(plan.getWindLevelDesc()));
+        putIfNotNull(row, "passengerSpeedLimit", parseVehicleSpeedLimit(plan.getRiskSectionPlan(), "小型车"));
+        putIfNotNull(row, "freightSpeedLimit", parseVehicleSpeedLimit(plan.getRiskSectionPlan(), "大型车"));
+        row.put("description", stateService.stringValue(plan.getRiskSectionPlan()));
+        row.put("riskSectionPlan", stateService.stringValue(plan.getRiskSectionPlan()));
+        row.put("upstreamExitPlan", stateService.stringValue(plan.getUpstreamExitPlan()));
+        row.put("upstreamEntryPlan", stateService.stringValue(plan.getUpstreamEntryPlan()));
+        row.put("upstreamServiceAreaPlan", stateService.stringValue(plan.getUpstreamServiceAreaPlan()));
+        row.put("sortNo", plan.getSortNo());
+        return row;
+    }
+
+    private void putIfNotNull(Map<String, Object> row, String key, Integer value) {
+        if (value != null) {
+            row.put(key, value);
+        }
+    }
+
+    private int parseControlLevelName(String controlLevelName) {
+        String text = stateService.stringValue(controlLevelName).trim();
+        if (text.contains("红色警戒") || text.contains("一级")) {
+            return 1;
+        }
+        if (text.contains("橙色警戒") || text.contains("二级")) {
+            return 2;
+        }
+        if (text.contains("黄色警戒") || text.contains("三级")) {
+            return 3;
+        }
+        if (text.contains("蓝色警戒") || text.contains("四级")) {
+            return 4;
+        }
+        if (text.contains("正常通行") || text.contains("绿色警戒") || text.contains("五级")) {
+            return 5;
+        }
+        Integer numeric = nullableInt(text);
+        return numeric == null ? -1 : numeric;
+    }
+
+    private Integer parseMinWindLevel(String windLevelDesc) {
+        String text = stateService.stringValue(windLevelDesc).trim();
+        if (text.isBlank()) {
+            return null;
+        }
+        if (text.contains("以下")) {
+            return 0;
+        }
+        String[] numbers = text.replace("级", "").split("-");
+        return nullableInt(numbers[0]);
+    }
+
+    private Integer parseMaxWindLevel(String windLevelDesc) {
+        String text = stateService.stringValue(windLevelDesc).trim();
+        if (text.isBlank()) {
+            return null;
+        }
+        if (text.contains("以下")) {
+            Integer upper = nullableInt(text.replace("级以下", ""));
+            return upper == null ? null : Math.max(0, upper - 1);
+        }
+        String[] numbers = text.replace("级", "").split("-");
+        return nullableInt(numbers.length > 1 ? numbers[1] : numbers[0]);
+    }
+
+    private Integer parseVehicleSpeedLimit(String plan, String vehicleName) {
+        String text = stateService.stringValue(plan);
+        int vehicleIndex = text.indexOf(vehicleName);
+        if (vehicleIndex < 0) {
+            return null;
+        }
+        int speedIndex = text.indexOf("限速", vehicleIndex);
+        if (speedIndex < 0) {
+            return null;
+        }
+        StringBuilder digits = new StringBuilder();
+        for (int i = speedIndex + 2; i < text.length(); i++) {
+            char ch = text.charAt(i);
+            if (Character.isDigit(ch)) {
+                digits.append(ch);
+            } else if (digits.length() > 0) {
+                break;
+            }
+        }
+        return nullableInt(digits.toString());
+    }
+
+    private String buildPlanVmsContent(Map<String, Object> plan) {
+        return "互通入口VMS：" + stateService.stringValue(plan.get("upstreamEntryPlan"))
+                + "；互通出口VMS：" + stateService.stringValue(plan.get("upstreamExitPlan"))
+                + "；管控区间VMS：" + stateService.stringValue(plan.get("riskSectionPlan"))
+                + "；服务区前VMS：" + stateService.stringValue(plan.get("upstreamServiceAreaPlan"));
     }
 
     private void syncThresholdRowsFromPlan(int level, Map<String, Object> plan) {

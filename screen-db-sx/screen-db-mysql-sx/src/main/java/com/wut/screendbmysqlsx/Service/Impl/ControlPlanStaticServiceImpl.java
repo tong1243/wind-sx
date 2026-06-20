@@ -35,7 +35,7 @@ public class ControlPlanStaticServiceImpl extends ServiceImpl<ControlPlanStaticM
     public List<ControlPlanStatic> getEnabledPlans() {
         LambdaQueryWrapper<ControlPlanStatic> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(ControlPlanStatic::getIsEnabled, 1)
-                .orderByAsc(ControlPlanStatic::getSortNo)
+                .orderByDesc(ControlPlanStatic::getSortNo)
                 .orderByAsc(ControlPlanStatic::getControlLevelName)
                 .orderByAsc(ControlPlanStatic::getId);
         return controlPlanStaticMapper.selectList(wrapper);

@@ -54,6 +54,7 @@ public class ControlPlanLibraryController {
         if (req.getMaxWindLevel() != null) body.put("maxWindLevel", req.getMaxWindLevel());
         if (req.getPassengerSpeedLimit() != null) body.put("passengerSpeedLimit", req.getPassengerSpeedLimit());
         if (req.getFreightSpeedLimit() != null) body.put("freightSpeedLimit", req.getFreightSpeedLimit());
+        if (req.getWindLevelDesc() != null) body.put("windLevelDesc", req.getWindLevelDesc());
         if (req.getDescription() != null) body.put("description", req.getDescription());
         if (req.getRiskSectionPlan() != null) body.put("riskSectionPlan", req.getRiskSectionPlan());
         if (req.getUpstreamExitPlan() != null) body.put("upstreamExitPlan", req.getUpstreamExitPlan());
