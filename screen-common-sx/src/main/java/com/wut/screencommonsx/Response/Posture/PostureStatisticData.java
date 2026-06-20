@@ -14,9 +14,9 @@ public class PostureStatisticData {
     @JsonProperty("flowToEZ")
     private Double flowToEZ;                            // 武汉至鄂州小时平均流量
     @JsonProperty("speedToWH")
-    private Double speedToWH;                           // 鄂州至武汉平均速度
+    private Integer speedToWH;                          // 鄂州至武汉平均速度
     @JsonProperty("speedToEZ")
-    private Double speedToEZ;                           // 武汉至鄂州平均速度
+    private Integer speedToEZ;                          // 武汉至鄂州平均速度
     @JsonProperty("congestionToWH")
     private Double congestionToWH;                      // 鄂州至武汉拥堵指数
     @JsonProperty("congestionToEZ")

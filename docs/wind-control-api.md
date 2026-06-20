@@ -159,7 +159,7 @@
   {
     "eventId": "DET-40800",
     "eventType": "OVERSPEED",
-    "segment": "HS-G30 K3020-K3030",
+    "segment": "K3198-K3197",
     "vehiclePlate": "新A8F21X",
     "thresholdSpeedKmPerHour": 120,
     "status": "UNPROCESSED",

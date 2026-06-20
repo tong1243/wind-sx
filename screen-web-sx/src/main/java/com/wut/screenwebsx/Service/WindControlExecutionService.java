@@ -1109,6 +1109,10 @@ public class WindControlExecutionService {
      * 3) 仅 DRAFT 允许编辑；非 DRAFT 直接返回当前详情。
      */
     public Map<String, Object> buildExecutionTableByEdit(String planId) {
+        return buildExecutionTableByEdit(planId, null);
+    }
+
+    public Map<String, Object> buildExecutionTableByEdit(String planId, Long timestamp) {
         autoCloseExpiredPublishedPlans();
         Map<String, Object> current = stateService.getGeneratedPlans().get(planId);
         if (current == null) {
@@ -1118,15 +1122,20 @@ public class WindControlExecutionService {
         Map<String, Object> plan = "DRAFT".equalsIgnoreCase(status)
                 ? updateDraftPlan(planId, new LinkedHashMap<>())
                 : new LinkedHashMap<>(current);
+        alignPlanRecommendationWithFuture2h(plan, timestamp);
 
         Map<String, Object> table = new LinkedHashMap<>();
+        int recommendedLevel = stateService.intValue(plan.get("recommendedControlLevel"),
+                stateService.intValue(plan.get("controlLevel"), stateService.getDefaultControlLevel()));
         table.put("planId", stateService.stringValue(plan.get("planId")));
         table.put("segment", stateService.stringValue(plan.get("segment")));
         table.put("segmentText", firstNonBlank(plan.get("segmentText"), plan.get("segment")));
         table.put("direction", stateService.intValue(plan.get("direction"), DIRECTION_HAMI));
         table.put("directionText", firstNonBlank(plan.get("directionText"), directionToText(stateService.intValue(plan.get("direction"), DIRECTION_HAMI))));
-        table.put("controlLevel", stateService.intValue(plan.get("controlLevel"), stateService.getDefaultControlLevel()));
-        table.put("controlLevelText", firstNonBlank(plan.get("controlLevelText"), levelToText(stateService.intValue(plan.get("controlLevel"), stateService.getDefaultControlLevel()))));
+        table.put("controlLevel", recommendedLevel);
+        table.put("controlLevelText", levelToText(recommendedLevel));
+        table.put("recommendedControlLevel", recommendedLevel);
+        table.put("recommendedControlLevelText", levelToText(recommendedLevel));
         table.put("publishTime", stateService.stringValue(plan.get("publishTime")));
         table.put("publishEndTime", stateService.stringValue(plan.get("publishEndTime")));
         table.put("durationHours", stateService.intValue(plan.get("durationHours"), DEFAULT_PLAN_WINDOW_HOURS));
@@ -1135,7 +1144,7 @@ public class WindControlExecutionService {
         table.put("serviceAreaUnsealTargetWindLevel", "11级");
         table.put("mainlineUnsealTargetWindLevel", "9级");
 
-        Map<String, Object> template = safeMap(plan.get("template"));
+        Map<String, Object> template = resolveTemplateByRecommendedLevel(plan, recommendedLevel);
         boolean hasInterchange = Boolean.TRUE.equals(plan.get("hasInterchange"));
         String riskSectionPlan = materializePlanText(
                 stateService.stringValue(template.get("riskSectionPlan")),
@@ -1272,6 +1281,80 @@ public class WindControlExecutionService {
     /**
      * 图二固定六行数据：四条 VMS 发布内容 + 两条管控措施。
      */
+    private void alignPlanRecommendationWithFuture2h(Map<String, Object> plan, Long timestamp) {
+        if (plan == null || plan.isEmpty()) {
+            return;
+        }
+        int direction = stateService.intValue(plan.get("direction"), DIRECTION_HAMI);
+        String startStake = stateService.stringValue(plan.get("startStake"));
+        String endStake = stateService.stringValue(plan.get("endStake"));
+        int future2hWindLevel = 0;
+        if (!startStake.isBlank() && !endStake.isBlank()) {
+            long baseTimestamp = timestamp == null || timestamp <= 0
+                    ? longValue(plan.get("timestamp"), System.currentTimeMillis())
+                    : timestamp;
+            LocalDateTime baseTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(baseTimestamp), ZoneId.systemDefault());
+            List<WindData> future2hRows = windDataService.listByTimeRange(
+                    baseTime,
+                    LocalDateTime.ofInstant(Instant.ofEpochMilli(baseTimestamp + WINDOW_2H_MS), ZoneId.systemDefault())
+            );
+            future2hWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, future2hRows);
+        }
+        int recommendedLevel = future2hWindLevel > 0
+                ? resolveConfiguredControlLevel(future2hWindLevel)
+                : stateService.intValue(plan.get("recommendedControlLevel"),
+                stateService.intValue(plan.get("controlLevel"), stateService.getDefaultControlLevel()));
+        Map<String, Object> template = resolveTemplateByRecommendedLevel(plan, recommendedLevel);
+        applyRecommendedTemplateToPlan(plan, recommendedLevel, template, future2hWindLevel);
+    }
+
+    private Map<String, Object> resolveTemplateByRecommendedLevel(Map<String, Object> plan, int recommendedLevel) {
+        Map<String, Object> template = stateService.getControlPlanLibrary().get(recommendedLevel);
+        if (template != null) {
+            return template;
+        }
+        return safeMap(plan == null ? null : plan.get("template"));
+    }
+
+    private void applyRecommendedTemplateToPlan(Map<String, Object> plan,
+                                                int recommendedLevel,
+                                                Map<String, Object> template,
+                                                int future2hWindLevel) {
+        if (plan == null || template == null || template.isEmpty()) {
+            return;
+        }
+        int direction = stateService.intValue(plan.get("direction"), DIRECTION_HAMI);
+        String segmentText = firstNonBlank(plan.get("segmentText"), plan.get("segment"));
+        boolean hasInterchange = Boolean.TRUE.equals(plan.get("hasInterchange"));
+        boolean includeUpstreamServiceArea = shouldIncludeUpstreamServiceArea(hasInterchange);
+        Map<String, String> vmsTexts = resolvePlanVmsTexts(template, segmentText, includeUpstreamServiceArea);
+        plan.put("recommendedControlLevel", recommendedLevel);
+        plan.put("recommendedControlLevelText", levelToText(recommendedLevel));
+        plan.put("controlLevel", recommendedLevel);
+        plan.put("controlLevelText", levelToText(recommendedLevel));
+        if (future2hWindLevel > 0) {
+            plan.put("forecastMaxWindLevel", future2hWindLevel);
+        }
+        plan.put("template", new LinkedHashMap<>(template));
+        plan.put("managementPlan", "LEVEL-" + recommendedLevel);
+        plan.put("controlEventText", resolveControlEventText(template, recommendedLevel));
+        plan.put("vmsContent", vmsTexts.get("vmsContent"));
+        plan.put("vmsInsideSegment", vmsTexts.get("vmsInsideSegment"));
+        plan.put("vmsUpstreamExit", vmsTexts.get("vmsUpstreamExit"));
+        plan.put("vmsUpstreamTollgate", vmsTexts.get("vmsUpstreamTollgate"));
+        plan.put("vmsUpstreamServiceArea", vmsTexts.get("vmsUpstreamServiceArea"));
+        plan.put("vmsPublishItems", buildVmsPublishItems(
+                direction,
+                stateService.stringValue(plan.get("nearestUpstreamInterchangeStake")),
+                segmentText,
+                vmsTexts.get("vmsInsideSegment"),
+                vmsTexts.get("vmsUpstreamExit"),
+                vmsTexts.get("vmsUpstreamTollgate"),
+                vmsTexts.get("vmsUpstreamServiceArea"),
+                includeUpstreamServiceArea
+        ));
+    }
+
     private List<Map<String, Object>> buildExecutionPublishRows(List<Map<String, Object>> vmsFacilityItems,
                                                                 String vmsInsideSegment,
                                                                 String vmsUpstreamExit,

@@ -27,6 +27,8 @@ public class WindControlRoadStatusService {
             Pattern.compile("(?i)k(\\d+)(?:\\+\\d+)?\\s*-\\s*k(\\d+)(?:\\+\\d+)?");
     private static final String INTERCHANGE_EVENT_SEGMENT_FORWARD = "K3198-K3199";
     private static final String INTERCHANGE_EVENT_SEGMENT_REVERSE = "K3199-K3198";
+    private static final String INTERCHANGE_EVENT_SEGMENT_HAMI = "K3198-K3197";
+    private static final String INTERCHANGE_EVENT_SEGMENT_TURPAN = "K3196-K3197";
     private static final String SERVICE_AREA_HONGSHANKOU_NORTH = "红山口服务区北";
     private static final String SERVICE_AREA_HONGSHANKOU_SOUTH = "红山口服务区南";
 
@@ -356,10 +358,12 @@ public class WindControlRoadStatusService {
         }
         int seq = 1;
         for (Map<String, Object> row : rows) {
-            String segment = toPureStakeRangeText(pickText(row, "segment", "segmentName"));
-            if (!isInterchangeEventSegment(segment)) {
+            String rawSegment = toPureStakeRangeText(pickText(row, "segment", "segmentName"));
+            if (!isInterchangeEventSegment(rawSegment)) {
                 continue;
             }
+            int direction = normalizeDirection(row.get("direction"), 2);
+            String segment = toInterchangeEventSegment(direction);
             String eventId = valueOf(row.get("eventId"));
             if (eventId.isBlank()) {
                 eventId = "DET-" + (timestamp % 100000) + "-" + seq;
@@ -382,6 +386,10 @@ public class WindControlRoadStatusService {
     private boolean isInterchangeEventSegment(String segment) {
         return INTERCHANGE_EVENT_SEGMENT_FORWARD.equals(segment)
                 || INTERCHANGE_EVENT_SEGMENT_REVERSE.equals(segment);
+    }
+
+    private String toInterchangeEventSegment(int direction) {
+        return direction == 2 ? INTERCHANGE_EVENT_SEGMENT_TURPAN : INTERCHANGE_EVENT_SEGMENT_HAMI;
     }
 
     private void persistDetectionEvents(List<Map<String, Object>> rows, long timestamp) {

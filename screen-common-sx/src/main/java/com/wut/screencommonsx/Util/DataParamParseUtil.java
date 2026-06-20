@@ -27,6 +27,12 @@ public class DataParamParseUtil {
         BigDecimal decimal = new BigDecimal(value).setScale(0, RoundingMode.HALF_UP);
         return decimal.intValue();
     }
+
+    public static int getRoundIntValue(double value) {
+        BigDecimal decimal = new BigDecimal(value).setScale(0, RoundingMode.HALF_UP);
+        return decimal.intValue();
+    }
+
     public static double getRoundValue2(double value) {
         BigDecimal decimal = new BigDecimal(value).setScale(2, RoundingMode.HALF_UP);
         return decimal.doubleValue();

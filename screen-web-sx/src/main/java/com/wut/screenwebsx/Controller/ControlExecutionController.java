@@ -93,10 +93,11 @@ public class ControlExecutionController {
      * 3) 返回图二完整渲染字段。
      */
     @PostMapping("/control-dashboard/execution/{planId:[0-9a-fA-F]{8}}")
-    public DefaultDataResp buildExecutionTableByEdit(@PathVariable("planId") String planId) {
+    public DefaultDataResp buildExecutionTableByEdit(@PathVariable("planId") String planId,
+                                                     @RequestParam(value = "timestamp", required = false) Long timestamp) {
         return ModelTransformUtil.getDefaultDataInstance(
                 "dashboard execution table",
-                executionService.buildExecutionTableByEdit(planId)
+                executionService.buildExecutionTableByEdit(planId, timestamp)
         );
     }
 
