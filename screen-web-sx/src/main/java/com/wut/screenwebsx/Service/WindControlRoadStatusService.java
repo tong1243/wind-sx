@@ -412,17 +412,17 @@ public class WindControlRoadStatusService {
     }
 
     private String normalizeCongestionStatus(String raw, Double avgSpeed) {
-        String s = raw.toUpperCase(Locale.ROOT);
-        if ("SMOOTH".equals(s) || "SLOW".equals(s) || "CONGESTED".equals(s)) {
-            return s;
-        }
         if (avgSpeed == null) {
+            String s = raw.toUpperCase(Locale.ROOT);
+            if ("SMOOTH".equals(s) || "SLOW".equals(s) || "CONGESTED".equals(s)) {
+                return s;
+            }
             return "CONGESTED";
         }
-        if (avgSpeed > 80D) {
+        if (avgSpeed > 60D) {
             return "SMOOTH";
         }
-        if (avgSpeed >= 60D) {
+        if (avgSpeed >= 40D) {
             return "SLOW";
         }
         return "CONGESTED";

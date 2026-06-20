@@ -1175,10 +1175,19 @@ public class WindControlExecutionService {
         if (current == null) {
             throw new IllegalArgumentException("plan not found: " + planId);
         }
+        int planDirection = normalizeDirectionValue(
+                stateService.intValue(current.get("direction"), DIRECTION_HAMI),
+                DIRECTION_HAMI
+        );
+        Set<String> seenDeviceIds = new HashSet<>();
         List<Map<String, Object>> rows = new ArrayList<>();
         for (Map<String, Object> facility : getPublishFacilitiesForExecution()) {
+            int facilityDirection = stateService.intValue(facility.get("direction"), -1);
+            if (facilityDirection != planDirection) {
+                continue;
+            }
             String deviceId = stateService.stringValue(facility.get("facilityId"));
-            if (deviceId.isBlank()) {
+            if (deviceId.isBlank() || !seenDeviceIds.add(deviceId)) {
                 continue;
             }
             String postInformation = stateService.stringValue(facility.get("postInformation"));
@@ -1190,6 +1199,8 @@ public class WindControlExecutionService {
             }
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("deviceId", deviceId);
+            row.put("direction", facilityDirection);
+            row.put("directionText", directionToText(facilityDirection));
             row.put("currentPublishInfo", postInformation.isBlank() ? "" : normalizePublishPrefix(postInformation));
             rows.add(row);
         }
@@ -1263,31 +1274,20 @@ public class WindControlExecutionService {
         for (Map<String, Object> facility : getPublishFacilitiesForExecution()) {
             int facilityDirection = stateService.intValue(facility.get("direction"), -1);
             String deviceId = stateService.stringValue(facility.get("facilityId"));
-            if (deviceId.isBlank()) {
+            if (facilityDirection != direction || deviceId.isBlank()) {
                 continue;
             }
-            String publishMessage;
-            if (facilityDirection == direction) {
-                // 仅更新当前方向：命中则返回管控文案，未命中返回欢迎语。
-                publishMessage = selectedMessageByDeviceId.get(deviceId);
-                if (publishMessage == null || publishMessage.isBlank()) {
-                    publishMessage = buildFacilityWelcomeText(
-                            stateService.stringValue(facility.get("segment")),
-                            segmentText
-                    );
-                }
-            } else {
-                // 非当前方向：保持原发布信息，不参与本次更新。
-                publishMessage = stateService.stringValue(facility.get("postInformation"));
-                if (publishMessage.isBlank()) {
-                    publishMessage = buildFacilityWelcomeText(
-                            stateService.stringValue(facility.get("segment")),
-                            segmentText
-                    );
-                }
+            String publishMessage = selectedMessageByDeviceId.get(deviceId);
+            if (publishMessage == null || publishMessage.isBlank()) {
+                publishMessage = buildFacilityWelcomeText(
+                        stateService.stringValue(facility.get("segment")),
+                        segmentText
+                );
             }
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("deviceId", deviceId);
+            row.put("direction", facilityDirection);
+            row.put("directionText", directionToText(facilityDirection));
             row.put("currentPublishInfo", publishMessage.isBlank() ? "" : normalizePublishPrefix(publishMessage));
             rows.add(row);
         }

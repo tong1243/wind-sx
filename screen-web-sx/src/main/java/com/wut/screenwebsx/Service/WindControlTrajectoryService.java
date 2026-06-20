@@ -723,10 +723,10 @@ public class WindControlTrajectoryService {
         if (avgSpeedKmh == null) {
             return "CONGESTED";
         }
-        if (avgSpeedKmh > 80D) {
+        if (avgSpeedKmh > 60D) {
             return "SMOOTH";
         }
-        if (avgSpeedKmh >= 60D) {
+        if (avgSpeedKmh >= 40D) {
             return "SLOW";
         }
         return "CONGESTED";
