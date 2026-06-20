@@ -266,7 +266,8 @@ public class WindControlWindImpactService {
                     controlInterval,
                     displayStartStake,
                     displayEndStake,
-                    sendStakeRange
+                    sendStakeRange,
+                    controlLevel
             );
             if (vmsData != null && !vmsData.isEmpty()) {
                 row.put("data", vmsData);
@@ -297,7 +298,8 @@ public class WindControlWindImpactService {
                                                             String controlInterval,
                                                             String startStake,
                                                             String endStake,
-                                                            String sendStakeRange) {
+                                                            String sendStakeRange,
+                                                            int controlLevel) {
         double[] sendRange = parseRange(sendStakeRange);
         if (sendRange == null) {
             return Map.of();
@@ -307,16 +309,15 @@ public class WindControlWindImpactService {
             return Map.of();
         }
 
-        Map<String, String> vmsTexts = resolvePlanVmsTexts(plan);
-        String riskSectionPlan = vmsTexts.getOrDefault(VMS_INSIDE_SEGMENT, "");
         Map<String, Object> result = new LinkedHashMap<>();
-        putVmsItemIfNotBlank(result, controlInterval, sendStakeRange, sendRange, VMS_INSIDE_SEGMENT, riskSectionPlan);
+        putVmsItemIfNotBlank(result, controlInterval, sendStakeRange, sendRange, VMS_INSIDE_SEGMENT,
+                resolveFixedVmsContent(controlLevel, VMS_INSIDE_SEGMENT));
         putVmsItemIfNotBlank(result, controlInterval, sendStakeRange, sendRange, VMS_UPSTREAM_EXIT,
-                vmsTexts.getOrDefault(VMS_UPSTREAM_EXIT, ""));
+                resolveFixedVmsContent(controlLevel, VMS_UPSTREAM_EXIT));
         putVmsItemIfNotBlank(result, controlInterval, sendStakeRange, sendRange, VMS_UPSTREAM_TOLLGATE,
-                vmsTexts.getOrDefault(VMS_UPSTREAM_TOLLGATE, ""));
+                resolveFixedVmsContent(controlLevel, VMS_UPSTREAM_TOLLGATE));
         putVmsItemIfNotBlank(result, controlInterval, sendStakeRange, sendRange, VMS_UPSTREAM_SERVICE_AREA,
-                vmsTexts.getOrDefault(VMS_UPSTREAM_SERVICE_AREA, ""));
+                resolveFixedVmsContent(controlLevel, VMS_UPSTREAM_SERVICE_AREA));
         return result;
     }
 
@@ -421,8 +422,8 @@ public class WindControlWindImpactService {
                                       String sendStakeRange,
                                       double[] sendRange,
                                       String key,
-                                      String content) {
-        if (content == null || content.isBlank()) {
+                                      FixedVmsContent fixedContent) {
+        if (fixedContent == null || (fixedContent.mainContent().isBlank() && fixedContent.tipContent().isBlank())) {
             return;
         }
         VmsDevice device = resolveVmsDevice(controlInterval, sendStakeRange, sendRange, key);
@@ -432,8 +433,44 @@ public class WindControlWindImpactService {
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("stake", device.stake());
         item.put("deviceId", device.deviceId());
-        item.put("content", content);
+        item.put("fixedMainContent", fixedContent.mainContent());
+        item.put("fixedTipContent", fixedContent.tipContent());
         target.put(key, item);
+    }
+
+    private FixedVmsContent resolveFixedVmsContent(int controlLevel, String vmsKind) {
+        return switch (controlLevel) {
+            case 1 -> switch (vmsKind) {
+                case VMS_UPSTREAM_TOLLGATE -> new FixedVmsContent("主线高速大风红色预警，车辆禁止驶入。", "入口提示：小型车禁行，大型车禁行。");
+                case VMS_UPSTREAM_EXIT -> new FixedVmsContent("前方大风，所有车辆靠右驶离高速。", "出口提示：小型车禁行，大型车禁行。");
+                case VMS_INSIDE_SEGMENT -> new FixedVmsContent("当前路段大风红色预警，车辆紧急避险。", "路段提示：小型车避险，大型车避险。");
+                case VMS_UPSTREAM_SERVICE_AREA -> new FixedVmsContent("当前路段大风红色预警，车辆服务区避险。", "服务区提示：小型车避险，大型车避险。");
+                default -> FixedVmsContent.empty();
+            };
+            case 2 -> switch (vmsKind) {
+                case VMS_UPSTREAM_TOLLGATE -> new FixedVmsContent("主线高速大风橙色预警，小车预约大型车禁行。", "入口提示：车辆预约，小型车限速60，大型车禁行。");
+                case VMS_UPSTREAM_EXIT -> new FixedVmsContent("前方大风橙色预警，小车预约大车驶离高速。", "出口提示：车辆预约，小型车限速60，大型车禁行。");
+                case VMS_INSIDE_SEGMENT -> new FixedVmsContent("当前路段大风橙色预警，大车紧急避险。", "路段提示：小型车限速60，大型车避险。");
+                case VMS_UPSTREAM_SERVICE_AREA -> new FixedVmsContent("当前路段大风橙色预警，大车紧急避险。", "服务区提示：小型车限速60，大型车避险。");
+                default -> FixedVmsContent.empty();
+            };
+            case 3 -> switch (vmsKind) {
+                case VMS_UPSTREAM_TOLLGATE -> new FixedVmsContent("主线高速大风黄色预警，仅预约车辆通行。", "入口提示：车辆预约，小型车限速60，大型车限速40。");
+                case VMS_UPSTREAM_EXIT -> new FixedVmsContent("前方大风黄色预警，未预约车辆驶离高速。", "出口提示：车辆预约，小型车限速60，大型车限速40。");
+                case VMS_INSIDE_SEGMENT -> new FixedVmsContent("当前路段大风黄色预警，请按限速行驶。", "路段提示：小型车限速60，大型车限速40。");
+                case VMS_UPSTREAM_SERVICE_AREA -> new FixedVmsContent("当前路段大风黄色预警，请按限速行驶。", "服务区提示：小型车限速60，大型车限速40。");
+                default -> FixedVmsContent.empty();
+            };
+            case 4 -> switch (vmsKind) {
+                case VMS_UPSTREAM_TOLLGATE -> new FixedVmsContent("主线高速大风，请遵循指引安全驾驶。", "入口提示：小型车限速80，大型车限速60。");
+                case VMS_UPSTREAM_EXIT -> new FixedVmsContent("前方大风，请遵循指引安全驾驶。", "出口提示：小型车限速80，大型车限速60。");
+                case VMS_INSIDE_SEGMENT -> new FixedVmsContent("当前路段大风，请遵循指示安全驾驶。", "路段提示：小型车限速80，大型车限速60。");
+                case VMS_UPSTREAM_SERVICE_AREA -> new FixedVmsContent("当前路段大风，请遵循指示安全驾驶。", "服务区提示：小型车限速80，大型车限速60。");
+                default -> FixedVmsContent.empty();
+            };
+            case 5 -> new FixedVmsContent("连霍高速欢迎您，请遵循指引安全驾驶。", "温馨提示：小型车限速120，大型车限速80。");
+            default -> FixedVmsContent.empty();
+        };
     }
 
     private VmsDevice resolveVmsDevice(String controlInterval, String sendStakeRange, double[] sendRange, String key) {
@@ -1954,6 +1991,28 @@ public class WindControlWindImpactService {
 
         private String type() {
             return type;
+        }
+    }
+
+    private static class FixedVmsContent {
+        private final String mainContent;
+        private final String tipContent;
+
+        private FixedVmsContent(String mainContent, String tipContent) {
+            this.mainContent = mainContent == null ? "" : mainContent;
+            this.tipContent = tipContent == null ? "" : tipContent;
+        }
+
+        private static FixedVmsContent empty() {
+            return new FixedVmsContent("", "");
+        }
+
+        private String mainContent() {
+            return mainContent;
+        }
+
+        private String tipContent() {
+            return tipContent;
         }
     }
 }
