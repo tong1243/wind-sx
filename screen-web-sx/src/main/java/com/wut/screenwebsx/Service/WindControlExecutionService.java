@@ -318,12 +318,15 @@ public class WindControlExecutionService {
                 || body.containsKey("actualWindSpeedMs")
                 || body.containsKey("forecastMaxWindSpeed2hMs")
                 || body.containsKey("forecastWindSpeedSeriesMs"));
-        int computedLevel = resolveConfiguredControlLevel(Math.max(realtimeWind, forecastWind));
+        int computedLevel = resolveConfiguredControlLevel(forecastWind);
         int recommendedLevel = body != null && body.containsKey("recommendedControlLevel")
                 ? stateService.intValue(body.get("recommendedControlLevel"), computedLevel)
                 : levelInputsChanged
                 ? computedLevel
                 : stateService.intValue(plan.get("recommendedControlLevel"), computedLevel);
+        int currentLevel = body != null && body.containsKey("controlLevel")
+                ? stateService.intValue(body.get("controlLevel"), stateService.intValue(plan.get("controlLevel"), stateService.getDefaultControlLevel()))
+                : resolveConfiguredControlLevel(realtimeWind);
 
         Map<String, Object> template = stateService.getControlPlanLibrary().get(recommendedLevel);
         if (template == null) {
@@ -349,8 +352,10 @@ public class WindControlExecutionService {
         plan.put("forecastMaxWindLevel", forecastWind);
         plan.put("recommendedControlLevel", recommendedLevel);
         plan.put("recommendedControlLevelText", levelToText(recommendedLevel));
-        plan.put("controlLevel", recommendedLevel);
-        plan.put("controlLevelText", levelToText(recommendedLevel));
+        plan.put("currentControlLevel", currentLevel);
+        plan.put("currentControlLevelText", levelToText(currentLevel));
+        plan.put("controlLevel", currentLevel);
+        plan.put("controlLevelText", levelToText(currentLevel));
         plan.put("template", new LinkedHashMap<>(template));
         plan.put("managementPlan", body != null && body.containsKey("managementPlan")
                 ? stateService.stringValue(body.get("managementPlan"))
@@ -571,9 +576,15 @@ public class WindControlExecutionService {
         for (Map<String, Object> interval : collectDashboardIntervals()) {
             int direction = stateService.intValue(interval.get("direction"), DIRECTION_HAMI);
             String segment = resolveDashboardSegmentText(interval, direction);
-            int recommendedWindLevel = resolveRecommendedWindLevel(interval, latestRows, future2hRows);
+            String[] stakes = resolveSpatiotemporalStakes(Collections.emptyMap(), interval);
+            String startStake = firstNonBlank(stakes[0], interval.get("startStake"));
+            String endStake = firstNonBlank(stakes[1], interval.get("endStake"));
+            int currentWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, latestRows);
+            int recommendedWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, future2hRows);
+            int current = currentWindLevel > 0
+                    ? resolveConfiguredControlLevel(currentWindLevel)
+                    : resolveCurrentControlLevelForInterval(segment, interval);
             int recommended = resolveConfiguredControlLevel(recommendedWindLevel);
-            int current = resolveCurrentControlLevelForInterval(segment, interval);
             if (recommended != current) {
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("segment", segment);
@@ -890,6 +901,7 @@ public class WindControlExecutionService {
                 baseTime,
                 LocalDateTime.ofInstant(Instant.ofEpochMilli(baseTimestamp + WINDOW_2H_MS), ZoneId.systemDefault())
         );
+        List<WindData> latestRows = windDataService.listLatestSnapshot(baseTime);
 
         for (Map<String, Object> interval : intervals) {
             String intervalName = firstNonBlank(interval.get("intervalName"), interval.get("segment"));
@@ -903,7 +915,7 @@ public class WindControlExecutionService {
                 refreshDraftPlanRecommendation(plan, interval);
             }
             if (plan != null) {
-                alignPlanRecommendationWithFuture2h(plan, interval, future2hRows);
+                alignPlanLevelsWithWindRows(plan, interval, latestRows, future2hRows);
                 stateService.getPersistenceService().upsertPlan(plan);
             }
             Map<String, Object> row = plan == null
@@ -1005,8 +1017,8 @@ public class WindControlExecutionService {
         plan.put("recommendedControlLevelText", levelToText(recommendedLevel));
         plan.put("currentControlLevel", currentLevel);
         plan.put("currentControlLevelText", levelToText(currentLevel));
-        plan.put("controlLevel", recommendedLevel);
-        plan.put("controlLevelText", levelToText(recommendedLevel));
+        plan.put("controlLevel", currentLevel);
+        plan.put("controlLevelText", levelToText(currentLevel));
         plan.put("template", new LinkedHashMap<>(template));
         plan.put("managementPlan", "LEVEL-" + recommendedLevel);
         plan.put("controlEventText", resolveControlEventText(template, recommendedLevel));
@@ -1142,13 +1154,15 @@ public class WindControlExecutionService {
         Map<String, Object> table = new LinkedHashMap<>();
         int recommendedLevel = stateService.intValue(plan.get("recommendedControlLevel"),
                 stateService.intValue(plan.get("controlLevel"), stateService.getDefaultControlLevel()));
+        int controlLevel = stateService.intValue(plan.get("controlLevel"),
+                stateService.intValue(plan.get("currentControlLevel"), stateService.getDefaultControlLevel()));
         table.put("planId", stateService.stringValue(plan.get("planId")));
         table.put("segment", stateService.stringValue(plan.get("segment")));
         table.put("segmentText", firstNonBlank(plan.get("segmentText"), plan.get("segment")));
         table.put("direction", stateService.intValue(plan.get("direction"), DIRECTION_HAMI));
         table.put("directionText", firstNonBlank(plan.get("directionText"), directionToText(stateService.intValue(plan.get("direction"), DIRECTION_HAMI))));
-        table.put("controlLevel", recommendedLevel);
-        table.put("controlLevelText", levelToText(recommendedLevel));
+        table.put("controlLevel", controlLevel);
+        table.put("controlLevelText", levelToText(controlLevel));
         table.put("recommendedControlLevel", recommendedLevel);
         table.put("recommendedControlLevelText", levelToText(recommendedLevel));
         table.put("publishTime", stateService.stringValue(plan.get("publishTime")));
@@ -1202,7 +1216,6 @@ public class WindControlExecutionService {
                 includeUpstreamServiceArea
         ));
         List<Map<String, Object>> vmsFacilityItems = normalizeVmsPublishItems(plan.get("vmsPublishItems"));
-        int controlLevel = stateService.intValue(table.get("controlLevel"), stateService.getDefaultControlLevel());
         List<Map<String, Object>> publishRows = buildExecutionPublishRows(
                 vmsFacilityItems,
                 vmsInsideSegment,
@@ -1211,7 +1224,7 @@ public class WindControlExecutionService {
                 vmsUpstreamServiceArea,
                 upstreamExitControl,
                 upstreamTollgateControl,
-                controlLevel
+                recommendedLevel
         );
         table.put("publishRows", publishRows);
         table.put("vmsPublishRows", filterVmsPublishRows(publishRows));
@@ -1292,8 +1305,9 @@ public class WindControlExecutionService {
                                                                Map<String, Object> interval,
                                                                List<WindData> future2hRows) {
         int direction = stateService.intValue(row.get("direction"), stateService.intValue(interval.get("direction"), DIRECTION_HAMI));
-        String startStake = firstNonBlank(row.get("startStake"), interval.get("startStake"));
-        String endStake = firstNonBlank(row.get("endStake"), interval.get("endStake"));
+        String[] stakes = resolveSpatiotemporalStakes(row, interval);
+        String startStake = firstNonBlank(stakes[0], row.get("startStake"), interval.get("startStake"));
+        String endStake = firstNonBlank(stakes[1], row.get("endStake"), interval.get("endStake"));
         int future2hWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, future2hRows);
         if (future2hWindLevel <= 0) {
             row.put("forecastMaxWindLevel", null);
@@ -1315,23 +1329,22 @@ public class WindControlExecutionService {
             return;
         }
         int direction = stateService.intValue(plan.get("direction"), DIRECTION_HAMI);
-        String startStake = stateService.stringValue(plan.get("startStake"));
-        String endStake = stateService.stringValue(plan.get("endStake"));
-        String future2hStakeRange = resolveSpatiotemporalStakeRange(plan);
-        if (!future2hStakeRange.isBlank()) {
-            startStake = extractStake(future2hStakeRange, true);
-            endStake = extractStake(future2hStakeRange, false);
-        }
+        String[] stakes = resolveSpatiotemporalStakes(plan, Collections.emptyMap());
+        String startStake = firstNonBlank(stakes[0], plan.get("startStake"));
+        String endStake = firstNonBlank(stakes[1], plan.get("endStake"));
         int future2hWindLevel = 0;
+        int currentWindLevel = 0;
         if (!startStake.isBlank() && !endStake.isBlank()) {
             long baseTimestamp = timestamp == null || timestamp <= 0
                     ? longValue(plan.get("timestamp"), System.currentTimeMillis())
                     : timestamp;
             LocalDateTime baseTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(baseTimestamp), ZoneId.systemDefault());
+            List<WindData> latestRows = windDataService.listLatestSnapshot(baseTime);
             List<WindData> future2hRows = windDataService.listByTimeRange(
                     baseTime,
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(baseTimestamp + WINDOW_2H_MS), ZoneId.systemDefault())
             );
+            currentWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, latestRows);
             future2hWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, future2hRows);
         }
         int fallbackWindLevel = Math.max(
@@ -1344,31 +1357,39 @@ public class WindControlExecutionService {
                 ? resolveConfiguredControlLevel(fallbackWindLevel)
                 : stateService.intValue(plan.get("recommendedControlLevel"),
                 stateService.intValue(plan.get("controlLevel"), stateService.getDefaultControlLevel()));
+        int currentLevel = currentWindLevel > 0
+                ? resolveConfiguredControlLevel(currentWindLevel)
+                : stateService.intValue(plan.get("controlLevel"),
+                stateService.intValue(plan.get("currentControlLevel"), stateService.getDefaultControlLevel()));
         Map<String, Object> template = resolveTemplateByRecommendedLevel(plan, recommendedLevel);
-        applyRecommendedTemplateToPlan(plan, recommendedLevel, template, future2hWindLevel);
+        applyRecommendedTemplateToPlan(plan, currentLevel, recommendedLevel, template, future2hWindLevel);
     }
 
-    private void alignPlanRecommendationWithFuture2h(Map<String, Object> plan,
-                                                     Map<String, Object> interval,
-                                                     List<WindData> future2hRows) {
+    private void alignPlanLevelsWithWindRows(Map<String, Object> plan,
+                                             Map<String, Object> interval,
+                                             List<WindData> latestRows,
+                                             List<WindData> future2hRows) {
         if (plan == null || plan.isEmpty()) {
             return;
         }
         int direction = stateService.intValue(plan.get("direction"), stateService.intValue(interval.get("direction"), DIRECTION_HAMI));
-        String startStake = firstNonBlank(plan.get("startStake"), interval.get("startStake"));
-        String endStake = firstNonBlank(plan.get("endStake"), interval.get("endStake"));
-        String future2hStakeRange = resolveSpatiotemporalStakeRange(plan, interval);
-        if (!future2hStakeRange.isBlank()) {
-            startStake = extractStake(future2hStakeRange, true);
-            endStake = extractStake(future2hStakeRange, false);
-        }
+        String[] stakes = resolveSpatiotemporalStakes(plan, interval);
+        String startStake = firstNonBlank(stakes[0], plan.get("startStake"), interval.get("startStake"));
+        String endStake = firstNonBlank(stakes[1], plan.get("endStake"), interval.get("endStake"));
+        int currentWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, latestRows);
         int future2hWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, future2hRows);
-        if (future2hWindLevel <= 0) {
+        if (currentWindLevel <= 0 && future2hWindLevel <= 0) {
             return;
         }
-        int recommendedLevel = resolveConfiguredControlLevel(future2hWindLevel);
+        int currentLevel = currentWindLevel > 0
+                ? resolveConfiguredControlLevel(currentWindLevel)
+                : stateService.intValue(plan.get("controlLevel"),
+                stateService.intValue(plan.get("currentControlLevel"), stateService.getDefaultControlLevel()));
+        int recommendedLevel = future2hWindLevel > 0
+                ? resolveConfiguredControlLevel(future2hWindLevel)
+                : stateService.intValue(plan.get("recommendedControlLevel"), currentLevel);
         Map<String, Object> template = resolveTemplateByRecommendedLevel(plan, recommendedLevel);
-        applyRecommendedTemplateToPlan(plan, recommendedLevel, template, future2hWindLevel);
+        applyRecommendedTemplateToPlan(plan, currentLevel, recommendedLevel, template, future2hWindLevel);
     }
 
     private Map<String, Object> resolveTemplateByRecommendedLevel(Map<String, Object> plan, int recommendedLevel) {
@@ -1416,7 +1437,16 @@ public class WindControlExecutionService {
         return "";
     }
 
+    private String[] resolveSpatiotemporalStakes(Map<String, Object> plan, Map<String, Object> interval) {
+        String stakeRange = resolveSpatiotemporalStakeRange(plan, interval);
+        if (stakeRange.isBlank()) {
+            return new String[]{"", ""};
+        }
+        return new String[]{extractStake(stakeRange, true), extractStake(stakeRange, false)};
+    }
+
     private void applyRecommendedTemplateToPlan(Map<String, Object> plan,
+                                                int currentLevel,
                                                 int recommendedLevel,
                                                 Map<String, Object> template,
                                                 int future2hWindLevel) {
@@ -1430,8 +1460,10 @@ public class WindControlExecutionService {
         Map<String, String> vmsTexts = resolvePlanVmsTexts(template, segmentText, includeUpstreamServiceArea);
         plan.put("recommendedControlLevel", recommendedLevel);
         plan.put("recommendedControlLevelText", levelToText(recommendedLevel));
-        plan.put("controlLevel", recommendedLevel);
-        plan.put("controlLevelText", levelToText(recommendedLevel));
+        plan.put("currentControlLevel", currentLevel);
+        plan.put("currentControlLevelText", levelToText(currentLevel));
+        plan.put("controlLevel", currentLevel);
+        plan.put("controlLevelText", levelToText(currentLevel));
         if (future2hWindLevel > 0) {
             plan.put("forecastMaxWindLevel", future2hWindLevel);
         }
@@ -2415,23 +2447,6 @@ public class WindControlExecutionService {
     private boolean isUpstreamServiceAreaFacility(String facilitySegment) {
         String segment = facilitySegment == null ? "" : facilitySegment;
         return segment.contains("服务区前") || segment.contains("服务区入口");
-    }
-
-    private int resolveRecommendedWindLevel(Map<String, Object> section,
-                                            List<WindData> latestRows,
-                                            List<WindData> future2hRows) {
-        int direction = normalizeDirectionValue(stateService.intValue(section.get("direction"), DIRECTION_HAMI), DIRECTION_HAMI);
-        String startStake = stateService.stringValue(section.get("startStake"));
-        String endStake = stateService.stringValue(section.get("endStake"));
-
-        int realtimeMax = resolveMaxWindLevelFromRows(direction, startStake, endStake, latestRows);
-        int forecastMax = resolveMaxWindLevelFromRows(direction, startStake, endStake, future2hRows);
-        if (realtimeMax <= 0 && forecastMax <= 0) {
-            // wind_data 缺失时回退到现有快照字段，避免建议计算中断。
-            realtimeMax = stateService.intValue(section.get("realWindLevel"), 0);
-            forecastMax = stateService.intValue(section.get("forecastWindLevel"), 0);
-        }
-        return Math.max(realtimeMax, forecastMax);
     }
 
     private int resolveMaxWindLevelFromRows(int direction,
