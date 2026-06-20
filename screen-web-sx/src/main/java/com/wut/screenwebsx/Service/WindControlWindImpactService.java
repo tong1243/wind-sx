@@ -756,11 +756,6 @@ public class WindControlWindImpactService {
         if (newControlLevel < 1 || newControlLevel > 5) {
             throw new IllegalArgumentException("controlLevel must be between 1 and 5");
         }
-        if (newControlLevel > oldControlLevel
-                || newPassenger > oldPassenger
-                || newFreight > oldFreight) {
-            throw new IllegalArgumentException("threshold update must be stricter, not looser");
-        }
 
         Map<Integer, Map<String, Object>> controlPlanLibrary = stateService.getControlPlanLibrary();
         Map<String, Object> sourcePlan = new LinkedHashMap<>(controlPlanLibrary.getOrDefault(oldControlLevel, Map.of()));
@@ -817,9 +812,6 @@ public class WindControlWindImpactService {
         if (sourceLevel <= 0) {
             throw new IllegalArgumentException("windLevelDesc not found: " + windLevelDesc);
         }
-        if (sourceLevel < controlLevel) {
-            throw new IllegalArgumentException("threshold update must be stricter, not looser");
-        }
 
         Integer reqPassenger = toNullableInt(body == null ? null : body.get("passengerSpeedLimit"));
         Integer reqFreight = toNullableInt(body == null ? null : body.get("freightSpeedLimit"));
@@ -840,9 +832,6 @@ public class WindControlWindImpactService {
             int oldFreight = stateService.intValue(row.get("freightSpeedLimit"), 999);
             int newPassenger = reqPassenger == null ? oldPassenger : reqPassenger;
             int newFreight = reqFreight == null ? oldFreight : reqFreight;
-            if (newPassenger > oldPassenger || newFreight > oldFreight) {
-                throw new IllegalArgumentException("threshold update must be stricter, not looser");
-            }
 
             row.put("controlLevel", controlLevel);
             row.put("controlLevelName", levelName(controlLevel));
@@ -1412,7 +1401,18 @@ public class WindControlWindImpactService {
         }
         return finalWindLevel == null
                 ? stateService.getDefaultControlLevel()
-                : stateService.mapWindToControlLevel(finalWindLevel);
+                : resolveConfiguredControlLevel(finalWindLevel);
+    }
+
+    private int resolveConfiguredControlLevel(int windLevel) {
+        Map<String, Object> threshold = stateService.getSpeedThresholdByWindLevel().get(windLevel);
+        if (threshold == null) {
+            return stateService.mapWindToControlLevel(windLevel);
+        }
+        int controlLevel = stateService.intValue(threshold.get("controlLevel"), -1);
+        return controlLevel >= 1 && controlLevel <= 5
+                ? controlLevel
+                : stateService.mapWindToControlLevel(windLevel);
     }
 
     private Integer resolveForecastWindLevelFromRows(List<WindData> rows,

@@ -84,8 +84,6 @@ public class WindImpactController {
     /**
      * 按管控等级更新阈值（主入口）。
      *
-     * 规则：只允许更严格，不允许更宽松；低等级收紧到高等级后触发方案级联统一。
-     *
      * @param controlLevel 被编辑的管控等级（1-5）
      * @param req 阈值更新参数
      * @return 更新结果
@@ -105,8 +103,6 @@ public class WindImpactController {
 
     /**
      * 按管控等级编辑风力阈值映射（兼容别名入口）。
-     *
-     * 规则：只允许更严格，不允许更宽松；低等级收紧到高等级后触发方案级联统一。
      *
      * @param controlLevel 被编辑的管控等级（1-5）
      * @param req 编辑参数
