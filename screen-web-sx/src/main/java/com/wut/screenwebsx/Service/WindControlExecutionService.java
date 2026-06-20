@@ -860,6 +860,10 @@ public class WindControlExecutionService {
      * 大屏图一：管控方案自动生成与调整表格。
      */
     public List<Map<String, Object>> listAutoGenerationTableRows(String status) {
+        return listAutoGenerationTableRows(status, null);
+    }
+
+    public List<Map<String, Object>> listAutoGenerationTableRows(String status, Long timestamp) {
         String normalizedStatus = status == null ? "" : status.trim().toUpperCase(Locale.ROOT);
         List<Map<String, Object>> plans = listGeneratedPlans(normalizedStatus);
         Map<String, Map<String, Object>> latestPlanByIntervalAndDirection = new LinkedHashMap<>();
@@ -873,6 +877,12 @@ public class WindControlExecutionService {
 
         List<Map<String, Object>> rows = new ArrayList<>();
         List<Map<String, Object>> intervals = collectDashboardIntervals();
+        long baseTimestamp = timestamp == null || timestamp <= 0 ? System.currentTimeMillis() : timestamp;
+        LocalDateTime baseTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(baseTimestamp), ZoneId.systemDefault());
+        List<WindData> future2hRows = windDataService.listByTimeRange(
+                baseTime,
+                LocalDateTime.ofInstant(Instant.ofEpochMilli(baseTimestamp + WINDOW_2H_MS), ZoneId.systemDefault())
+        );
 
         for (Map<String, Object> interval : intervals) {
             String intervalName = firstNonBlank(interval.get("intervalName"), interval.get("segment"));
@@ -888,6 +898,7 @@ public class WindControlExecutionService {
             Map<String, Object> row = plan == null
                     ? buildEmptyAutoGenerationRow(resolveDashboardSegmentText(interval, direction), direction)
                     : buildAutoGenerationRowFromPlan(plan, interval);
+            alignAutoGenerationRecommendationWithFuture2h(row, interval, future2hRows);
 
             if (!normalizedStatus.isBlank()) {
                 String rowStatus = stateService.stringValue(row.get("status")).toUpperCase(Locale.ROOT);
@@ -1237,6 +1248,25 @@ public class WindControlExecutionService {
             rows.add(row);
         }
         return rows;
+    }
+
+    private void alignAutoGenerationRecommendationWithFuture2h(Map<String, Object> row,
+                                                               Map<String, Object> interval,
+                                                               List<WindData> future2hRows) {
+        int direction = stateService.intValue(row.get("direction"), stateService.intValue(interval.get("direction"), DIRECTION_HAMI));
+        String startStake = firstNonBlank(row.get("startStake"), interval.get("startStake"));
+        String endStake = firstNonBlank(row.get("endStake"), interval.get("endStake"));
+        int future2hWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, future2hRows);
+        if (future2hWindLevel <= 0) {
+            row.put("forecastMaxWindLevel", null);
+            row.put("recommendedControlLevel", null);
+            row.put("recommendedControlLevelText", "");
+            return;
+        }
+        int recommendedLevel = resolveConfiguredControlLevel(future2hWindLevel);
+        row.put("forecastMaxWindLevel", future2hWindLevel);
+        row.put("recommendedControlLevel", recommendedLevel);
+        row.put("recommendedControlLevelText", levelToText(recommendedLevel));
     }
 
     /**
@@ -2279,6 +2309,17 @@ public class WindControlExecutionService {
         String sectionEndStake = normalizeStakeToken(endStake);
         if (rowStartStake.isBlank() || rowEndStake.isBlank() || sectionStartStake.isBlank() || sectionEndStake.isBlank()) {
             return false;
+        }
+        Double rowStartValue = parseStakeValue(rowStartStake);
+        Double rowEndValue = parseStakeValue(rowEndStake);
+        Double sectionStartValue = parseStakeValue(sectionStartStake);
+        Double sectionEndValue = parseStakeValue(sectionEndStake);
+        if (rowStartValue != null && rowEndValue != null && sectionStartValue != null && sectionEndValue != null) {
+            double rowMin = Math.min(rowStartValue, rowEndValue);
+            double rowMax = Math.max(rowStartValue, rowEndValue);
+            double sectionMin = Math.min(sectionStartValue, sectionEndValue);
+            double sectionMax = Math.max(sectionStartValue, sectionEndValue);
+            return !(rowMax < sectionMin || rowMin > sectionMax);
         }
         return (sectionStartStake.equals(rowStartStake) && sectionEndStake.equals(rowEndStake))
                 || (sectionStartStake.equals(rowEndStake) && sectionEndStake.equals(rowStartStake));

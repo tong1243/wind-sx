@@ -57,10 +57,11 @@ public class ControlExecutionController {
      * 大屏图一：管控方案自动生成与调整表格接口。
      */
     @GetMapping("/control-dashboard/auto-generation")
-    public DefaultDataResp listAutoGenerationTable(@RequestParam(value = "status", required = false) String status) {
+    public DefaultDataResp listAutoGenerationTable(@RequestParam(value = "status", required = false) String status,
+                                                   @RequestParam(value = "timestamp", required = false) Long timestamp) {
         return ModelTransformUtil.getDefaultDataInstance(
                 "dashboard auto-generation table",
-                executionService.listAutoGenerationTableRows(status)
+                executionService.listAutoGenerationTableRows(status, timestamp)
         );
     }
 
