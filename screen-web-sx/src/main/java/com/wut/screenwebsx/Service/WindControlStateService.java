@@ -579,7 +579,7 @@ public class WindControlStateService {
             int level = intValue(row.get("level"), -1);
             if (level > 0) {
                 Map<String, Object> normalized = new LinkedHashMap<>(row);
-                applyConciseControlPlanText(level, normalized);
+                normalized.put("description", stringValue(normalized.get("riskSectionPlan")));
                 controlPlanLibrary.put(level, normalized);
             }
         }
@@ -868,7 +868,6 @@ public class WindControlStateService {
             row.put("upstreamExitPlan", stringValue(plan.getUpstreamExitPlan()));
             row.put("upstreamEntryPlan", stringValue(plan.getUpstreamEntryPlan()));
             row.put("upstreamServiceAreaPlan", stringValue(plan.getUpstreamServiceAreaPlan()));
-            applyConciseControlPlanText(level, row);
             controlPlanLibrary.put(level, row);
 
             vmsContentLibrary.put(level, buildVmsContent(row));

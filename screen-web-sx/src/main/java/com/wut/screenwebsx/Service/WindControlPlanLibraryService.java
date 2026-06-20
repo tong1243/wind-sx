@@ -85,8 +85,11 @@ public class WindControlPlanLibraryService {
         String autoContent = buildAutoVmsContent(level, existing);
         stateService.getVmsContentLibrary().put(level, autoContent);
         syncPublishFacilityPostInformation(autoContent);
+        Map<String, Object> dbSync = stateService.getPersistenceService().updateStaticControlPlanAndThreshold(level, existing);
         stateService.persistSnapshot();
-        return buildControlPlanResponse(level, existing);
+        Map<String, Object> response = buildControlPlanResponse(level, existing);
+        response.put("dbSync", dbSync);
+        return response;
     }
 
     /**

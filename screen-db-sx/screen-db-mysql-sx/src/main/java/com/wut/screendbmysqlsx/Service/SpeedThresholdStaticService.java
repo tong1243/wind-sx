@@ -15,4 +15,12 @@ public interface SpeedThresholdStaticService extends IService<SpeedThresholdStat
      * @return 启用的限速阈值列表
      */
     List<SpeedThresholdStatic> getEnabledThresholds();
+
+    /**
+     * 按管控等级名称更新启用的限速阈值配置。
+     *
+     * @param row 限速阈值配置
+     * @return 是否更新成功
+     */
+    boolean updateEnabledByControlLevelName(SpeedThresholdStatic row);
 }

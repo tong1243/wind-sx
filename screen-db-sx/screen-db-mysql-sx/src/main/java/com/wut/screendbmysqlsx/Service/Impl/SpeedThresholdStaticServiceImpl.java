@@ -1,12 +1,14 @@
 package com.wut.screendbmysqlsx.Service.Impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.wut.screendbmysqlsx.Mapper.SpeedThresholdStaticMapper;
 import com.wut.screendbmysqlsx.Model.SpeedThresholdStatic;
 import com.wut.screendbmysqlsx.Service.SpeedThresholdStaticService;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -37,5 +39,42 @@ public class SpeedThresholdStaticServiceImpl extends ServiceImpl<SpeedThresholdS
                 .orderByAsc(SpeedThresholdStatic::getControlLevelName)
                 .orderByAsc(SpeedThresholdStatic::getId);
         return speedThresholdStaticMapper.selectList(wrapper);
+    }
+
+    @Override
+    public boolean updateEnabledByControlLevelName(SpeedThresholdStatic row) {
+        if (row == null || row.getControlLevelName() == null || row.getControlLevelName().isBlank()) {
+            return false;
+        }
+        LambdaUpdateWrapper<SpeedThresholdStatic> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(SpeedThresholdStatic::getIsEnabled, 1)
+                .in(SpeedThresholdStatic::getControlLevelName, levelNameCandidates(row.getControlLevelName()))
+                .set(SpeedThresholdStatic::getWindLevelDesc, row.getWindLevelDesc())
+                .set(SpeedThresholdStatic::getMinWindLevel, row.getMinWindLevel())
+                .set(SpeedThresholdStatic::getMaxWindLevel, row.getMaxWindLevel())
+                .set(SpeedThresholdStatic::getLightVehicleSpeedLimit, row.getLightVehicleSpeedLimit())
+                .set(SpeedThresholdStatic::getHeavyVehicleSpeedLimit, row.getHeavyVehicleSpeedLimit())
+                .set(SpeedThresholdStatic::getUpdateTime, LocalDateTime.now());
+        return speedThresholdStaticMapper.update(null, wrapper) > 0;
+    }
+
+    private List<String> levelNameCandidates(String controlLevelName) {
+        String name = controlLevelName == null ? "" : controlLevelName.trim();
+        if (name.contains("一") || name.contains("红")) {
+            return List.of("一级", "一级管控", "红色警戒");
+        }
+        if (name.contains("二") || name.contains("橙")) {
+            return List.of("二级", "二级管控", "橙色警戒");
+        }
+        if (name.contains("三") || name.contains("黄")) {
+            return List.of("三级", "三级管控", "黄色警戒");
+        }
+        if (name.contains("四") || name.contains("蓝")) {
+            return List.of("四级", "四级管控", "蓝色警戒");
+        }
+        if (name.contains("五") || name.contains("绿") || name.contains("正常")) {
+            return List.of("五级", "五级管控", "绿色警戒", "正常通行");
+        }
+        return List.of(name);
     }
 }

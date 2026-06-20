@@ -15,4 +15,12 @@ public interface ControlPlanStaticService extends IService<ControlPlanStatic> {
      * @return 启用的预案列表
      */
     List<ControlPlanStatic> getEnabledPlans();
+
+    /**
+     * 按管控等级名称更新启用的预案配置。
+     *
+     * @param row 预案配置
+     * @return 是否更新成功
+     */
+    boolean updateEnabledByControlLevelName(ControlPlanStatic row);
 }

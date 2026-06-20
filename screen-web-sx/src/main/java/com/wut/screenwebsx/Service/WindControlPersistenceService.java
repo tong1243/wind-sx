@@ -2,10 +2,14 @@ package com.wut.screenwebsx.Service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.wut.screendbmysqlsx.Model.ControlPlanStatic;
+import com.wut.screendbmysqlsx.Model.SpeedThresholdStatic;
 import com.wut.screendbmysqlsx.Model.WindControlKv;
 import com.wut.screendbmysqlsx.Model.WindControlPlan;
 import com.wut.screendbmysqlsx.Model.WindDetectionEvent;
 import com.wut.screendbmysqlsx.Model.WindEventRecord;
+import com.wut.screendbmysqlsx.Service.ControlPlanStaticService;
+import com.wut.screendbmysqlsx.Service.SpeedThresholdStaticService;
 import com.wut.screendbmysqlsx.Service.WindControlKvService;
 import com.wut.screendbmysqlsx.Service.WindControlPlanService;
 import com.wut.screendbmysqlsx.Service.WindDetectionEventService;
@@ -42,6 +46,8 @@ public class WindControlPersistenceService {
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final ControlPlanStaticService controlPlanStaticService;
+    private final SpeedThresholdStaticService speedThresholdStaticService;
     private final WindControlKvService windControlKvService;
     private final WindControlPlanService windControlPlanService;
     private final WindEventRecordService windEventRecordService;
@@ -49,12 +55,16 @@ public class WindControlPersistenceService {
 
     public WindControlPersistenceService(JdbcTemplate jdbcTemplate,
                                          ObjectMapper objectMapper,
+                                         ControlPlanStaticService controlPlanStaticService,
+                                         SpeedThresholdStaticService speedThresholdStaticService,
                                          WindControlKvService windControlKvService,
                                          WindControlPlanService windControlPlanService,
                                          WindEventRecordService windEventRecordService,
                                          WindDetectionEventService windDetectionEventService) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
+        this.controlPlanStaticService = controlPlanStaticService;
+        this.speedThresholdStaticService = speedThresholdStaticService;
         this.windControlKvService = windControlKvService;
         this.windControlPlanService = windControlPlanService;
         this.windEventRecordService = windEventRecordService;
@@ -168,6 +178,29 @@ public class WindControlPersistenceService {
             payload = new LinkedHashMap<>();
         }
         windControlKvService.upsert(category, key, writeJson(payload), System.currentTimeMillis());
+    }
+
+    public Map<String, Object> updateStaticControlPlanAndThreshold(int level, Map<String, Object> plan) {
+        ControlPlanStatic controlPlan = new ControlPlanStatic();
+        controlPlan.setControlLevelName(controlPlanStaticLevelName(level));
+        controlPlan.setWindLevelDesc(stringValue(plan.get("windLevelDesc")));
+        controlPlan.setRiskSectionPlan(stringValue(plan.get("riskSectionPlan")));
+        controlPlan.setUpstreamExitPlan(stringValue(plan.get("upstreamExitPlan")));
+        controlPlan.setUpstreamEntryPlan(stringValue(plan.get("upstreamEntryPlan")));
+        controlPlan.setUpstreamServiceAreaPlan(stringValue(plan.get("upstreamServiceAreaPlan")));
+
+        SpeedThresholdStatic threshold = new SpeedThresholdStatic();
+        threshold.setControlLevelName(speedThresholdStaticLevelName(level));
+        threshold.setWindLevelDesc(stringValue(plan.get("windLevelDesc")));
+        threshold.setMinWindLevel(nullableInt(plan.get("minWindLevel")));
+        threshold.setMaxWindLevel(nullableInt(plan.get("maxWindLevel")));
+        threshold.setLightVehicleSpeedLimit(nullableInt(plan.get("passengerSpeedLimit")));
+        threshold.setHeavyVehicleSpeedLimit(nullableInt(plan.get("freightSpeedLimit")));
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("controlPlanStaticUpdated", controlPlanStaticService.updateEnabledByControlLevelName(controlPlan));
+        result.put("speedThresholdStaticUpdated", speedThresholdStaticService.updateEnabledByControlLevelName(threshold));
+        return result;
     }
 
     /**
@@ -346,6 +379,21 @@ public class WindControlPersistenceService {
         }
     }
 
+    private Integer nullableInt(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number n) {
+            return n.intValue();
+        }
+        try {
+            String text = String.valueOf(value).trim();
+            return text.isBlank() ? null : Integer.parseInt(text);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     /**
      * 统一长整型取值，支持 Number/字符串并提供默认值兜底。
      */
@@ -361,6 +409,28 @@ public class WindControlPersistenceService {
         } catch (Exception e) {
             return defaultValue;
         }
+    }
+
+    private String controlPlanStaticLevelName(int level) {
+        return switch (level) {
+            case 1 -> "一级管控";
+            case 2 -> "二级管控";
+            case 3 -> "三级管控";
+            case 4 -> "四级管控";
+            case 5 -> "五级管控";
+            default -> String.valueOf(level);
+        };
+    }
+
+    private String speedThresholdStaticLevelName(int level) {
+        return switch (level) {
+            case 1 -> "一级";
+            case 2 -> "二级";
+            case 3 -> "三级";
+            case 4 -> "四级";
+            case 5 -> "五级";
+            default -> String.valueOf(level);
+        };
     }
 
     private String md5Hex(String value) {
