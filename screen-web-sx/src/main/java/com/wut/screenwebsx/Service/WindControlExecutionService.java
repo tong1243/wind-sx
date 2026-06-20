@@ -140,9 +140,9 @@ public class WindControlExecutionService {
                 ? stateService.intValue(body.get("forecastMaxWindLevel"), realtimeWind)
                 : stateService.mapWindSpeedToWindLevel(forecastMaxWindSpeed);
 
-        int forecastLevel = stateService.mapWindToControlLevel(forecastWind);
-        int actualLevel = stateService.mapWindToControlLevel(realtimeWind);
-        int baseLevel = stateService.mapWindToControlLevel(Math.max(realtimeWind, forecastWind));
+        int forecastLevel = resolveConfiguredControlLevel(forecastWind);
+        int actualLevel = resolveConfiguredControlLevel(realtimeWind);
+        int baseLevel = resolveConfiguredControlLevel(Math.max(realtimeWind, forecastWind));
         int previousLevel = stateService.getCurrentControlLevelBySegment().getOrDefault(segment, stateService.getDefaultControlLevel());
         boolean forecastWindowUpdated = toNullableBoolean(body.get("forecastWindowUpdated")) == null
                 || Boolean.TRUE.equals(toNullableBoolean(body.get("forecastWindowUpdated")));
@@ -313,7 +313,7 @@ public class WindControlExecutionService {
             forecastWind = stateService.mapWindSpeedToWindLevel(forecastMaxWindSpeed);
         }
 
-        int computedLevel = stateService.mapWindToControlLevel(Math.max(realtimeWind, forecastWind));
+        int computedLevel = resolveConfiguredControlLevel(Math.max(realtimeWind, forecastWind));
         int recommendedLevel = body != null && body.containsKey("recommendedControlLevel")
                 ? stateService.intValue(body.get("recommendedControlLevel"), computedLevel)
                 : computedLevel;
@@ -565,7 +565,7 @@ public class WindControlExecutionService {
             int direction = stateService.intValue(interval.get("direction"), DIRECTION_HAMI);
             String segment = resolveDashboardSegmentText(interval, direction);
             int recommendedWindLevel = resolveRecommendedWindLevel(interval, latestRows, future2hRows);
-            int recommended = stateService.mapWindToControlLevel(recommendedWindLevel);
+            int recommended = resolveConfiguredControlLevel(recommendedWindLevel);
             int current = resolveCurrentControlLevelForInterval(segment, interval);
             if (recommended != current) {
                 Map<String, Object> item = new LinkedHashMap<>();
@@ -882,6 +882,8 @@ public class WindControlExecutionService {
             if (plan == null && (normalizedStatus.isBlank() || "DRAFT".equals(normalizedStatus))) {
                 plan = createDefaultDraftPlanForInterval(interval, direction);
                 latestPlanByIntervalAndDirection.put(key, plan);
+            } else if (plan != null && "DRAFT".equalsIgnoreCase(stateService.stringValue(plan.get("status")))) {
+                refreshDraftPlanRecommendation(plan, interval);
             }
             Map<String, Object> row = plan == null
                     ? buildEmptyAutoGenerationRow(resolveDashboardSegmentText(interval, direction), direction)
@@ -962,6 +964,29 @@ public class WindControlExecutionService {
         row.put("publishEndTime", stateService.stringValue(plan.get("publishEndTime")));
         row.put("status", stateService.stringValue(plan.get("status")));
         return row;
+    }
+
+    private void refreshDraftPlanRecommendation(Map<String, Object> plan, Map<String, Object> interval) {
+        int realtimeWind = stateService.intValue(plan.get("realtimeWindLevel"), 7);
+        int forecastWind = stateService.intValue(plan.get("forecastMaxWindLevel"), realtimeWind);
+        int recommendedLevel = resolveConfiguredControlLevel(Math.max(realtimeWind, forecastWind));
+        int currentLevel = resolveCurrentControlLevelForInterval(
+                firstNonBlank(plan.get("segmentText"), plan.get("segment"), resolveDashboardSegmentText(interval, stateService.intValue(plan.get("direction"), DIRECTION_HAMI))),
+                interval
+        );
+        Map<String, Object> template = stateService.getControlPlanLibrary().get(recommendedLevel);
+        if (template == null) {
+            return;
+        }
+        plan.put("recommendedControlLevel", recommendedLevel);
+        plan.put("recommendedControlLevelText", levelToText(recommendedLevel));
+        plan.put("currentControlLevel", currentLevel);
+        plan.put("currentControlLevelText", levelToText(currentLevel));
+        plan.put("controlLevel", recommendedLevel);
+        plan.put("controlLevelText", levelToText(recommendedLevel));
+        plan.put("template", new LinkedHashMap<>(template));
+        plan.put("managementPlan", "LEVEL-" + recommendedLevel);
+        plan.put("controlEventText", resolveControlEventText(template, recommendedLevel));
     }
 
     private Map<String, Object> buildEmptyAutoGenerationRow(String intervalName, int direction) {
@@ -2221,6 +2246,20 @@ public class WindControlExecutionService {
             return 0;
         }
         return stateService.mapWindSpeedToWindLevel(windSpeed.doubleValue());
+    }
+
+    private int resolveConfiguredControlLevel(int windLevel) {
+        if (windLevel <= 0) {
+            return stateService.getDefaultControlLevel();
+        }
+        Map<String, Object> threshold = stateService.getSpeedThresholdByWindLevel().get(windLevel);
+        if (threshold == null) {
+            return stateService.mapWindToControlLevel(windLevel);
+        }
+        int controlLevel = stateService.intValue(threshold.get("controlLevel"), -1);
+        return controlLevel >= 1 && controlLevel <= 5
+                ? controlLevel
+                : stateService.mapWindToControlLevel(windLevel);
     }
 
     private boolean isWindRowMatchSection(WindData row,

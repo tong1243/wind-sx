@@ -1084,7 +1084,7 @@ public class WindControlWindImpactService {
         Integer maxWind = "future2h".equals(periodType)
                 ? resolveMaxWindLevelFromRows(future2hRows, stakeRange, direction)
                 : resolveMaxWindLevelFromRows(latestRows, stakeRange, direction);
-        Integer recommendedLevel = maxWind == null ? null : stateService.mapWindToControlLevel(maxWind);
+        Integer recommendedLevel = maxWind == null ? null : resolveConfiguredControlLevel(maxWind);
         Integer currentLevel = resolveCurrentControlLevelFromRows(latestRows, stakeRange, direction);
         Integer trafficVolume = trajectoryService.estimateTrafficVolumeVehPerHour(timestamp, stakeRange, direction);
         Boolean needAdjust = recommendedLevel != null && currentLevel != null && !recommendedLevel.equals(currentLevel);
@@ -1749,7 +1749,7 @@ public class WindControlWindImpactService {
             row.put("appSpeedInterval", segmentMeta == null ? null : stateService.stringValue(segmentMeta.get("appSpeedInterval")));
             row.put("controlInterval", segmentMeta == null ? null : stateService.stringValue(segmentMeta.get("controlInterval")));
             row.put("windLevel", windLevel);
-            row.put("recommendedControlLevel", stateService.mapWindToControlLevel(windLevel));
+            row.put("recommendedControlLevel", resolveConfiguredControlLevel(windLevel));
             row.put("passengerSpeedLimit", passenger);
             row.put("freightSpeedLimit", freight);
             records.add(row);
