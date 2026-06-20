@@ -1130,11 +1130,14 @@ public class WindControlExecutionService {
         if (current == null) {
             throw new IllegalArgumentException("plan not found: " + planId);
         }
+        Long recommendationTimestamp = timestamp != null && timestamp > 0
+                ? timestamp
+                : longValue(current.get("timestamp"), 0L);
         String status = stateService.stringValue(current.get("status"));
         Map<String, Object> plan = "DRAFT".equalsIgnoreCase(status)
                 ? updateDraftPlan(planId, new LinkedHashMap<>())
                 : new LinkedHashMap<>(current);
-        alignPlanRecommendationWithFuture2h(plan, timestamp);
+        alignPlanRecommendationWithFuture2h(plan, recommendationTimestamp);
 
         Map<String, Object> table = new LinkedHashMap<>();
         int recommendedLevel = stateService.intValue(plan.get("recommendedControlLevel"),
@@ -1323,7 +1326,9 @@ public class WindControlExecutionService {
         String endStake = stateService.stringValue(plan.get("endStake"));
         int future2hWindLevel = 0;
         if (!startStake.isBlank() && !endStake.isBlank()) {
-            long baseTimestamp = timestamp == null || timestamp <= 0 ? System.currentTimeMillis() : timestamp;
+            long baseTimestamp = timestamp == null || timestamp <= 0
+                    ? longValue(plan.get("timestamp"), System.currentTimeMillis())
+                    : timestamp;
             LocalDateTime baseTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(baseTimestamp), ZoneId.systemDefault());
             List<WindData> future2hRows = windDataService.listByTimeRange(
                     baseTime,
@@ -1331,8 +1336,14 @@ public class WindControlExecutionService {
             );
             future2hWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, future2hRows);
         }
+        int fallbackWindLevel = Math.max(
+                stateService.intValue(plan.get("forecastMaxWindLevel"), 0),
+                stateService.intValue(plan.get("realtimeWindLevel"), 0)
+        );
         int recommendedLevel = future2hWindLevel > 0
                 ? resolveConfiguredControlLevel(future2hWindLevel)
+                : fallbackWindLevel > 0
+                ? resolveConfiguredControlLevel(fallbackWindLevel)
                 : stateService.intValue(plan.get("recommendedControlLevel"),
                 stateService.intValue(plan.get("controlLevel"), stateService.getDefaultControlLevel()));
         Map<String, Object> template = resolveTemplateByRecommendedLevel(plan, recommendedLevel);
