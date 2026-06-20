@@ -578,7 +578,9 @@ public class WindControlStateService {
         for (Map<String, Object> row : persistenceService.listByCategory(CAT_CONTROL_PLAN)) {
             int level = intValue(row.get("level"), -1);
             if (level > 0) {
-                controlPlanLibrary.put(level, new LinkedHashMap<>(row));
+                Map<String, Object> normalized = new LinkedHashMap<>(row);
+                applyConciseControlPlanText(level, normalized);
+                controlPlanLibrary.put(level, normalized);
             }
         }
 
@@ -866,9 +868,10 @@ public class WindControlStateService {
             row.put("upstreamExitPlan", stringValue(plan.getUpstreamExitPlan()));
             row.put("upstreamEntryPlan", stringValue(plan.getUpstreamEntryPlan()));
             row.put("upstreamServiceAreaPlan", stringValue(plan.getUpstreamServiceAreaPlan()));
+            applyConciseControlPlanText(level, row);
             controlPlanLibrary.put(level, row);
 
-            vmsContentLibrary.put(level, buildVmsContent(plan));
+            vmsContentLibrary.put(level, buildVmsContent(row));
         }
 
         dispatchPlanLibrary.clear();
@@ -1166,11 +1169,59 @@ public class WindControlStateService {
     /**
      * 拼装 VMS 发布文案。
      */
-    private String buildVmsContent(ControlPlanStatic plan) {
-        return "区段内：" + stringValue(plan.getRiskSectionPlan())
-                + "；上游出口：" + stringValue(plan.getUpstreamExitPlan())
-                + "；上游入口：" + stringValue(plan.getUpstreamEntryPlan())
-                + "；上游服务区：" + stringValue(plan.getUpstreamServiceAreaPlan());
+    private void applyConciseControlPlanText(int level, Map<String, Object> row) {
+        String[] texts = conciseControlPlanTexts(level);
+        if (texts.length == 0) {
+            return;
+        }
+        row.put("upstreamEntryPlan", texts[0]);
+        row.put("upstreamExitPlan", texts[1]);
+        row.put("riskSectionPlan", texts[2]);
+        row.put("upstreamServiceAreaPlan", texts[3]);
+        row.put("description", texts[2]);
+    }
+
+    private String[] conciseControlPlanTexts(int level) {
+        return switch (level) {
+            case 5 -> new String[]{
+                    "小型车限速120，大型车限速80",
+                    "小型车限速120，大型车限速80",
+                    "小型车限速120，大型车限速80",
+                    "小型车限速120，大型车限速80"
+            };
+            case 4 -> new String[]{
+                    "小型车限速80，大型车限速60",
+                    "小型车限速80，大型车限速60",
+                    "小型车限速80，大型车限速60",
+                    "小型车限速80，大型车限速60"
+            };
+            case 3 -> new String[]{
+                    "车辆预约，小型车限速60，大型车限速40",
+                    "车辆预约，小型车限速60，大型车限速40",
+                    "小型车限速60，大型车限速40",
+                    "小型车限速60，大型车限速40"
+            };
+            case 2 -> new String[]{
+                    "车辆预约，小型车限速60，大型车禁行",
+                    "车辆预约，小型车限速60，大型车禁行",
+                    "小型车限速60，大型车避险",
+                    "小型车限速60，大型车避险"
+            };
+            case 1 -> new String[]{
+                    "所有车辆",
+                    "所有车辆禁行",
+                    "所有车辆避险",
+                    "所有车辆避险"
+            };
+            default -> new String[0];
+        };
+    }
+
+    private String buildVmsContent(Map<String, Object> plan) {
+        return "互通入口VMS：" + stringValue(plan.get("upstreamEntryPlan"))
+                + "；互通出口VMS：" + stringValue(plan.get("upstreamExitPlan"))
+                + "；管控区间VMS：" + stringValue(plan.get("riskSectionPlan"))
+                + "；服务区前VMS：" + stringValue(plan.get("upstreamServiceAreaPlan"));
     }
 
     /**
