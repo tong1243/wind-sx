@@ -20,7 +20,7 @@ public class TravelReservation {
     private String travelTimeSlot; // 出行时段：YYYY-MM-DD HH:MM~HH:MM
     private String carType;      // 车型
     private BigDecimal cargoWeight; // 货物重量（吨）
-    private Integer isPassed;    // 是否通过预约：1-是 0-否
+    private Integer isPassed;    // 预约状态：0-驳回 1-通过 2-待审核 3-已结束
     private String rejectReason; // 驳回原因
     private LocalDateTime createTime;
     private LocalDateTime updateTime;

@@ -65,7 +65,6 @@ public class SectionWebService {
     private static final String KEYWORD_SERVICE_AREA = "\u670D\u52A1\u533A";
     /** 五分钟统计窗口。 */
     private static final long WINDOW_5MIN_MS = 300000L;
-
     /** 断面信息上下文。 */
     private final SecInfoDataContext secInfoDataContext;
     /** 断面预处理服务。 */

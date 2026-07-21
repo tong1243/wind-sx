@@ -1,18 +1,20 @@
 package com.wut.screenwebsx.Controller;
 
+import com.wut.screencommonsx.Request.NavigationSettlementRequest;
 import com.wut.screencommonsx.Response.ApiResponse;
 import com.wut.screenwebsx.Service.NavigationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/realtimeNavigation")
+@RequestMapping({"/api/realtimeNavigation", "/api/realtime-navigation"})
 @RequiredArgsConstructor
 public class NavigationController {
     private final NavigationService navigationService;
@@ -33,6 +35,18 @@ public class NavigationController {
         return navigationService.getWindZoneInfo();
     }
 
+    @GetMapping("/overview")
+    public ApiResponse<OverviewInfo> getOverview() {
+        return navigationService.getOverview();
+    }
+
+    @PostMapping("/settlements")
+    public ApiResponse<?> settleNavigation(@RequestBody NavigationSettlementRequest request,
+                                           Authentication authentication) {
+        String phone = authentication == null ? null : authentication.getName();
+        return navigationService.settleNavigation(request, phone);
+    }
+
     public static class WindZoneInfo {
         private Integer startPile;
         private Integer endPile;
@@ -48,6 +62,24 @@ public class NavigationController {
 
         public Integer getEndPile() {
             return endPile;
+        }
+    }
+
+    public static class OverviewInfo {
+        private Long reservedVehicleCount;
+        private Long riskSectionVehicleCount;
+
+        public OverviewInfo(Long reservedVehicleCount, Long riskSectionVehicleCount) {
+            this.reservedVehicleCount = reservedVehicleCount;
+            this.riskSectionVehicleCount = riskSectionVehicleCount;
+        }
+
+        public Long getReservedVehicleCount() {
+            return reservedVehicleCount;
+        }
+
+        public Long getRiskSectionVehicleCount() {
+            return riskSectionVehicleCount;
         }
     }
 }

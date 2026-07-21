@@ -343,7 +343,7 @@ public class WindControlRoadStatusService {
             item.put("segment", toPureStakeRangeText(pickText(row, "segment", "segmentName")));
             item.put("direction", normalizeDirection(row.get("direction"), 2));
             item.put("currentVehicleCount", currentVehicleCount);
-            item.put("avgSpeedKmPerHour", avgSpeed == null ? null : Math.round(avgSpeed * 10D) / 10D);
+            item.put("avgSpeedKmPerHour", avgSpeed == null ? null : avgSpeed.intValue());
             item.put("congestionStatus", status);
             item.put("updateIntervalMin", Math.max(1, stateService.intValue(row.get("updateIntervalMin"), 5)));
             normalized.add(item);

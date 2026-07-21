@@ -23,4 +23,14 @@ public interface SpeedThresholdStaticService extends IService<SpeedThresholdStat
      * @return 是否更新成功
      */
     boolean updateEnabledByControlLevelName(SpeedThresholdStatic row);
+
+    /**
+     * 按风级更新命中的启用限速阈值配置。
+     *
+     * @param windLevel 风力等级
+     * @param lightVehicleSpeedLimit 小客车限速
+     * @param heavyVehicleSpeedLimit 客货车限速
+     * @return 是否更新成功
+     */
+    boolean updateEnabledByWindLevel(int windLevel, Integer lightVehicleSpeedLimit, Integer heavyVehicleSpeedLimit);
 }

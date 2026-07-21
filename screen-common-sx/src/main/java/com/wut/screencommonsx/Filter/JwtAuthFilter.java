@@ -2,6 +2,7 @@ package com.wut.screencommonsx.Filter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wut.screencommonsx.Response.ApiResponse;
+import com.wut.screencommonsx.Service.UserStatusProvider;
 import com.wut.screencommonsx.Util.JwtUtil;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -9,6 +10,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -25,11 +27,14 @@ import java.util.Collections;
 public class JwtAuthFilter extends OncePerRequestFilter {
     private final JwtUtil jwtUtil;
     private final ObjectMapper objectMapper;
+    private final ObjectProvider<UserStatusProvider> userStatusProviders;
     private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
 
     // 排除无需认证的接口（与 SecurityConfig 中 permitAll 保持一致）
     private static final String[] EXCLUDE_URL_PATTERNS = {
             "/api/login", "/api/register", "/api/auth/**",
+            "/api/realtime-navigation/overview",
+            "/api/realtimeNavigation/overview",
             "/api/v1/operation-maintenance/**",
 
             "/api/v1/road-statuses",
@@ -74,6 +79,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             "/api/v1/control-dashboard/auto-generation",
             "/api/v1/control-dashboard/execution/**",
             "/api/v1/control-dashboard/event-reports",
+            "/api/v1/control-dashboard/dispatch-records",
 
             "/api/v1/wind-risk-speed/**",
             "/api/v1/wind-risk-sections/**",
@@ -113,6 +119,10 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
 
         String phone = jwtUtil.getPhoneFromToken(token);
+        if (!isActiveUser(phone)) {
+            sendError(response, 401, "账号已注销或不存在，请重新登录");
+            return;
+        }
         UsernamePasswordAuthenticationToken authToken =
                 new UsernamePasswordAuthenticationToken(phone, null, Collections.emptyList());
         SecurityContextHolder.getContext().setAuthentication(authToken);
@@ -127,6 +137,10 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             }
         }
         return false;
+    }
+
+    private boolean isActiveUser(String phone) {
+        return userStatusProviders.stream().allMatch(provider -> provider.isActive(phone));
     }
 
     private void sendError(HttpServletResponse response, int code, String msg) throws IOException {

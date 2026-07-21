@@ -5,9 +5,14 @@ import com.wut.screencommonsx.Response.DefaultDataResp;
 import com.wut.screencommonsx.Response.DefaultMsgResp;
 import com.wut.screencommonsx.Util.ModelTransformUtil;
 import com.wut.screenwebsx.Service.WindControlExecutionService;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -20,6 +25,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/v1")
+@Slf4j
 public class ControlExecutionController {
     private final WindControlExecutionService executionService;
 
@@ -59,9 +65,22 @@ public class ControlExecutionController {
     @GetMapping("/control-dashboard/auto-generation")
     public DefaultDataResp listAutoGenerationTable(@RequestParam(value = "status", required = false) String status,
                                                    @RequestParam(value = "timestamp", required = false) Long timestamp) {
+        List<Map<String, Object>> rows = executionService.listAutoGenerationTableRows(status, timestamp);
+        log.info("dashboard auto-generation requested: status={}, rows={}",
+                status,
+                rows.stream()
+                        .map(row -> String.format("%s|%s|%s|control=%s/%s|recommended=%s/%s",
+                                row.get("planId"),
+                                row.get("segmentText"),
+                                row.get("status"),
+                                row.get("controlLevel"),
+                                row.get("controlLevelText"),
+                                row.get("recommendedControlLevel"),
+                                row.get("recommendedControlLevelText")))
+                        .toList());
         return ModelTransformUtil.getDefaultDataInstance(
                 "dashboard auto-generation table",
-                executionService.listAutoGenerationTableRows(status, timestamp)
+                rows
         );
     }
 
@@ -98,6 +117,71 @@ public class ControlExecutionController {
         return ModelTransformUtil.getDefaultDataInstance(
                 "dashboard execution table",
                 executionService.buildExecutionTableByEdit(planId, timestamp)
+        );
+    }
+
+    /**
+     * 大屏图二：点击“执行”后正式发布方案。
+     *
+     * 行为：将方案状态置为 PUBLISHED。
+     */
+    @PostMapping("/control-dashboard/execution/{planId:[0-9a-fA-F]{8}}/publish")
+    public DefaultDataResp publishExecutionPlan(@PathVariable("planId") String planId) {
+        log.info("control execution publish requested: route=/control-dashboard/execution/{}/publish", planId);
+        return publishExecutionPlanInternal(planId, "dashboard execution published");
+    }
+
+    /**
+     * 大屏图二：点击“执行”发布成功后，单独新增 RUNNING 事件报告。
+     */
+    @PostMapping("/control-dashboard/execution/{planId:[0-9a-fA-F]{8}}/event-report")
+    public DefaultDataResp createExecutionEventReport(@PathVariable("planId") String planId,
+                                                      @RequestParam(value = "confirm", defaultValue = "false") boolean confirm) {
+        log.info("control execution event report requested: route=/control-dashboard/execution/{}/event-report, confirm={}",
+                planId,
+                confirm);
+        requireManualCreateConfirm(confirm, "event report");
+        return ModelTransformUtil.getDefaultDataInstance(
+                "dashboard execution event report created",
+                executionService.createRunningEventReportForPlan(planId)
+        );
+    }
+
+    /**
+     * 大屏图二：点击“执行”发布成功后，单独新增中队出警记录。
+     */
+    @PostMapping("/control-dashboard/execution/{planId:[0-9a-fA-F]{8}}/dispatch-record")
+    public DefaultDataResp createExecutionDispatchRecord(@PathVariable("planId") String planId,
+                                                        @RequestParam(value = "confirm", defaultValue = "false") boolean confirm) {
+        log.info("control execution dispatch record requested: route=/control-dashboard/execution/{}/dispatch-record, confirm={}",
+                planId,
+                confirm);
+        requireManualCreateConfirm(confirm, "dispatch record");
+        return ModelTransformUtil.getDefaultDataInstance(
+                "dashboard execution dispatch record created",
+                executionService.createDispatchRecordForPlan(planId)
+        );
+    }
+
+    private void requireManualCreateConfirm(boolean confirm, String target) {
+        if (!confirm) {
+            throw new IllegalArgumentException("manual confirm required to create " + target);
+        }
+    }
+
+    /**
+     * 兼容旧路由：点击“执行”发布方案。
+     */
+    @PostMapping("/control-execution/publish/{planId:[0-9a-fA-F]{8}}")
+    public DefaultDataResp publishExecutionPlanCompat(@PathVariable("planId") String planId) {
+        log.info("control execution publish requested: route=/control-execution/publish/{}", planId);
+        return publishExecutionPlanInternal(planId, "control plan published");
+    }
+
+    private DefaultDataResp publishExecutionPlanInternal(String planId, String message) {
+        return ModelTransformUtil.getDefaultDataInstance(
+                message,
+                executionService.publishPlan(planId)
         );
     }
 
@@ -252,20 +336,28 @@ public class ControlExecutionController {
      * @return 事件列表或 CSV 导出内容
      */
     @GetMapping("/wind-events")
-    public DefaultDataResp listWindEvents(@RequestParam(value = "segment", required = false) String segment,
-                                          @RequestParam(value = "incidentLocation", required = false) String incidentLocation,
-                                          @RequestParam(value = "startStake", required = false) String startStake,
-                                          @RequestParam(value = "endStake", required = false) String endStake,
-                                          @RequestParam(value = "direction", required = false) Integer direction,
-                                          @RequestParam(value = "controlPlan", required = false) String controlPlan,
-                                          @RequestParam(value = "managementPlan", required = false) String managementPlan,
-                                          @RequestParam(value = "startTime", required = false) String startTime,
-                                          @RequestParam(value = "endTime", required = false) String endTime,
-                                          @RequestParam(value = "controlLevel", required = false) Integer controlLevel,
-                                          @RequestParam(value = "limit", required = false) Integer limit,
-                                          @RequestParam(value = "format", required = false) String format) {
+    public Object listWindEvents(@RequestParam(value = "segment", required = false) String segment,
+                                 @RequestParam(value = "incidentLocation", required = false) String incidentLocation,
+                                 @RequestParam(value = "startStake", required = false) String startStake,
+                                 @RequestParam(value = "endStake", required = false) String endStake,
+                                 @RequestParam(value = "direction", required = false) Integer direction,
+                                 @RequestParam(value = "controlPlan", required = false) String controlPlan,
+                                 @RequestParam(value = "managementPlan", required = false) String managementPlan,
+                                 @RequestParam(value = "startTime", required = false) String startTime,
+                                 @RequestParam(value = "endTime", required = false) String endTime,
+                                 @RequestParam(value = "controlLevel", required = false) Integer controlLevel,
+                                 @RequestParam(value = "limit", required = false) Integer limit,
+                                 @RequestParam(value = "format", required = false) String format,
+                                 HttpServletResponse response) throws IOException {
         if ("csv".equalsIgnoreCase(format)) {
-            return ModelTransformUtil.getDefaultDataInstance("wind events csv", executionService.exportWindEventRecordsCsv());
+            String csv = executionService.exportWindEventRecordsCsv();
+            String fileName = URLEncoder.encode("wind-events.csv", StandardCharsets.UTF_8).replaceAll("\\+", "%20");
+            response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+            response.setContentType("text/csv; charset=UTF-8");
+            response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''" + fileName);
+            response.getOutputStream().write(csv.getBytes(StandardCharsets.UTF_8));
+            response.getOutputStream().flush();
+            return null;
         }
         return ModelTransformUtil.getDefaultDataInstance(
                 "wind events",
@@ -282,6 +374,18 @@ public class ControlExecutionController {
         return ModelTransformUtil.getDefaultDataInstance(
                 "dashboard event-report table",
                 executionService.listEventReportTableRows(limit)
+        );
+    }
+
+    /**
+     * 兼容旧路由：查询大风事件记录。
+     */
+    @GetMapping("/control-execution/event-records")
+    public DefaultDataResp listWindEventRecordsCompat(@RequestParam(value = "limit", required = false) Integer limit) {
+        return ModelTransformUtil.getDefaultDataInstance(
+                "control execution event records",
+                executionService.listWindEventRecords(null, null, null, null, null,
+                        null, null, null, null, null, limit)
         );
     }
 

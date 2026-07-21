@@ -2,6 +2,7 @@ package com.wut.screencommonsx.Request.Wind;
 
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -14,10 +15,12 @@ public class UpdateSpeedThresholdValueReq {
     @Max(5)
     private Integer controlLevel;
 
+    @NotNull
     @Min(0)
     @Max(150)
     private Integer passengerSpeedLimit;
 
+    @NotNull
     @Min(0)
     @Max(150)
     private Integer freightSpeedLimit;

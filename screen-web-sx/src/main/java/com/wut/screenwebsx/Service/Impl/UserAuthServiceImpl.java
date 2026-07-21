@@ -16,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.regex.Pattern;
 
 @Slf4j
@@ -39,6 +40,9 @@ public class UserAuthServiceImpl extends ServiceImpl<UserAccountMapper, UserAcco
         UserAccount user = getOne(new LambdaQueryWrapper<UserAccount>().eq(UserAccount::getPhone, request.getPhone()));
         if (user == null || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             throw BusinessException.badRequest("手机号或密码错误");
+        }
+        if (!isActiveUser(user)) {
+            throw BusinessException.badRequest("账号已注销");
         }
         // 生成Token
         String token = jwtUtil.generateToken(user.getPhone());
@@ -107,6 +111,9 @@ public class UserAuthServiceImpl extends ServiceImpl<UserAccountMapper, UserAcco
         if (user == null) {
             throw BusinessException.notFound("手机号未注册");
         }
+        if (!isActiveUser(user)) {
+            throw BusinessException.badRequest("账号已注销");
+        }
         // 更新密码
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         updateById(user);
@@ -129,6 +136,12 @@ public class UserAuthServiceImpl extends ServiceImpl<UserAccountMapper, UserAcco
         }
         // 查询用户
         UserAccount user = getOne(new LambdaQueryWrapper<UserAccount>().eq(UserAccount::getPhone, phone));
+        if (user == null) {
+            throw BusinessException.notFound("未找到用户");
+        }
+        if (!isActiveUser(user)) {
+            throw BusinessException.badRequest("账号已注销");
+        }
         if (!passwordEncoder.matches(request.getOldPassword(), user.getPassword())) {
             throw BusinessException.badRequest("旧密码错误");
         }
@@ -136,6 +149,28 @@ public class UserAuthServiceImpl extends ServiceImpl<UserAccountMapper, UserAcco
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         updateById(user);
         return ApiResponse.success("密码修改成功", null);
+    }
+
+    @Override
+    public ApiResponse<?> deleteAccount(String phone) {
+        UserAccount user = getOne(new LambdaQueryWrapper<UserAccount>().eq(UserAccount::getPhone, phone));
+        if (user == null) {
+            throw BusinessException.notFound("未找到用户");
+        }
+        if (!isActiveUser(user)) {
+            return ApiResponse.success("账号已注销", null);
+        }
+        LocalDateTime now = LocalDateTime.now();
+        user.setStatus(0);
+        user.setDeleteTime(now);
+        user.setUpdateTime(now);
+        updateById(user);
+        log.info("用户{}注销账号", phone);
+        return ApiResponse.success("账号注销成功", null);
+    }
+
+    private boolean isActiveUser(UserAccount user) {
+        return user != null && Integer.valueOf(1).equals(user.getStatus());
     }
 
     // 内部用户信息类

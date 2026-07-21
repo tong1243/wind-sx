@@ -17,6 +17,7 @@ import com.wut.screendbmysqlsx.Service.PublishFacilityStaticService;
 import com.wut.screendbmysqlsx.Service.RoadSegmentStaticService;
 import com.wut.screendbmysqlsx.Service.SpeedThresholdStaticService;
 import jakarta.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -53,6 +54,7 @@ import static com.wut.screenwebsx.Service.WindControlPersistenceService.CAT_WIND
  * 3. 初始化遵循“先快照、后静态表”，不使用代码硬编码默认静态数据。
  */
 @Service
+@Slf4j
 public class WindControlStateService {
     /** 去往哈密方向（下行）。 */
     private static final int DIRECTION_HAMI = 1;
@@ -172,11 +174,11 @@ public class WindControlStateService {
 
     /**
      * 启动初始化入口。
-     * 先加载快照，若快照为空则走静态表初始化。
+     * 每次启动都清空运行态快照，并按静态表重建内存数据。
      */
     @PostConstruct
     public void init() {
-        loadFromDbOrSeed();
+        resetStateOnStartup();
     }
 
     /** @return 全线风区路段列表。 */
@@ -354,7 +356,7 @@ public class WindControlStateService {
      */
     public String csv(Object value) {
         String s = value == null ? "" : String.valueOf(value);
-        if (s.contains(",") || s.contains("\"") || s.contains("\n")) {
+        if (s.contains(",") || s.contains("\"") || s.contains("\n") || s.contains("\r")) {
             return "\"" + s.replace("\"", "\"\"") + "\"";
         }
         return s;
@@ -543,91 +545,20 @@ public class WindControlStateService {
     }
 
     /**
-     * 加载状态总流程。
+     * 启动时重置运行态。
      *
-     * 先尝试恢复快照；若快照为空则执行静态表初始化。
+     * 不恢复临时方案快照，按静态表重新装载运行态；历史事件记录从数据库恢复。
      */
-    private void loadFromDbOrSeed() {
-        List<Map<String, Object>> sections = persistenceService.listByCategory(CAT_WIND_SECTION);
-        if (sections.isEmpty()) {
-            initWindSections();
-            initSpeedThresholds();
-            initResourceLibrary();
-            initPlanLibrary();
-            initExecutionState();
-            persistSnapshot();
-            return;
-        }
-
-        fullLineWindSections.clear();
-        fullLineWindSections.addAll(sections);
-        for (Map<String, Object> section : fullLineWindSections) {
-            normalizeDirectionField(section);
-        }
-
-        speedThresholdByWindLevel.clear();
-        for (Map<String, Object> row : persistenceService.listByCategory(CAT_SPEED_THRESHOLD)) {
-            int level = intValue(row.get("windLevel"), -1);
-            if (level > 0) {
-                speedThresholdByWindLevel.put(level, new LinkedHashMap<>(row));
-            }
-        }
-
-        publishFacilities.clear();
-        publishFacilities.addAll(persistenceService.listByCategory(CAT_PUBLISH_FACILITY));
-        for (Map<String, Object> facility : publishFacilities) {
-            facility.putIfAbsent("postInformation", "");
-            facility.putIfAbsent("interchangeName", "");
-            facility.putIfAbsent("interchangeStake", "");
-            facility.putIfAbsent("redAlertMessage", "");
-            facility.putIfAbsent("colorAlertMessage", "");
-        }
-        closureDevices.clear();
-        closureDevices.addAll(persistenceService.listByCategory(CAT_CLOSURE_DEVICE));
-        staffList.clear();
-        staffList.addAll(persistenceService.listByCategory(CAT_STAFF));
-        dutyTeams.clear();
-        dutyTeams.addAll(persistenceService.listByCategory(CAT_TEAM));
-
-        refreshControlPlanLibraryFromStatic();
-
-        dispatchPlanLibrary.clear();
-        for (Map<String, Object> row : persistenceService.listByCategory(CAT_DISPATCH_PLAN)) {
-            String segment = stringValue(row.get("segment"));
-            if (!segment.isBlank()) {
-                row.putIfAbsent("intervalName", segment);
-                row.putIfAbsent("upstreamIntervalName", "");
-                row.putIfAbsent("hasInterchange", false);
-                row.putIfAbsent("nearestInterchangeStake", "");
-                row.putIfAbsent("startStakeValue", parseStakeValue(stringValue(row.get("startStake"))));
-                row.putIfAbsent("endStakeValue", parseStakeValue(stringValue(row.get("endStake"))));
-                dispatchPlanLibrary.put(segment, new LinkedHashMap<>(row));
-            }
-        }
-
-        currentControlLevelBySegment.clear();
-        int defaultLevel = getDefaultControlLevel();
-        for (Map<String, Object> row : persistenceService.listByCategory(CAT_CONTROL_STATE)) {
-            String segment = stringValue(row.get("segment"));
-            if (!segment.isBlank()) {
-                currentControlLevelBySegment.put(segment, intValue(row.get("level"), defaultLevel));
-            }
-        }
-
+    private void resetStateOnStartup() {
+        persistenceService.clearRuntimeStateOnStartup();
+        initWindSections();
+        initSpeedThresholds();
+        initResourceLibrary();
+        initPlanLibrary();
+        initExecutionState();
         generatedPlans.clear();
-        for (Map<String, Object> row : persistenceService.listLatestPlanPayloads(200)) {
-            String planId = stringValue(row.get("planId"));
-            if (!planId.isBlank()) {
-                normalizeDirectionField(row);
-                generatedPlans.put(planId, new LinkedHashMap<>(row));
-            }
-        }
-
         windEventRecords.clear();
         windEventRecords.addAll(persistenceService.listAllEvents());
-        for (Map<String, Object> event : windEventRecords) {
-            normalizeDirectionField(event);
-        }
     }
 
     /**
@@ -754,11 +685,11 @@ public class WindControlStateService {
             ));
         }
 
-        List<ClosureDeviceStatic> devices = closureDeviceStaticService.getEnabledDevices();
-        if (devices.isEmpty()) {
-            throw new IllegalStateException("closure_device_static 未查询到启用数据，请先执行静态表初始化 SQL。");
-        }
         closureDevices.clear();
+        List<ClosureDeviceStatic> devices = loadClosureDevicesSafely();
+        if (devices.isEmpty()) {
+            return;
+        }
         for (ClosureDeviceStatic device : devices) {
             String deviceId = stringValue(device.getDeviceId());
             if (deviceId.isBlank()) {
@@ -816,6 +747,32 @@ public class WindControlStateService {
                     "memberIds", parseMemberIds(team.getMemberIds())
             ));
         }
+    }
+
+    private List<ClosureDeviceStatic> loadClosureDevicesSafely() {
+        try {
+            return closureDeviceStaticService.getEnabledDevices();
+        } catch (RuntimeException ex) {
+            if (isMissingTable(ex, "closure_device_static")) {
+                log.warn("skip closure device static initialization because table closure_device_static is missing");
+                return Collections.emptyList();
+            }
+            throw ex;
+        }
+    }
+
+    private boolean isMissingTable(Throwable ex, String tableName) {
+        Throwable current = ex;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null
+                    && message.contains(tableName)
+                    && (message.contains("doesn't exist") || message.contains("不存在"))) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     /**

@@ -7,6 +7,9 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.time.LocalDateTime;
+import java.util.List;
+
 /**
  * UC实时推送车辆数据Mapper
  */
@@ -33,6 +36,9 @@ public interface UcCarRealTimeMapper extends BaseMapper<UcCarRealTime> {
 
     @Delete("DELETE FROM uc_car_real_time")
     int clearAll();
+
+    @Delete("DELETE FROM uc_car_real_time_current")
+    int clearCurrentAll();
 
     @Select({
             "<script>",
@@ -117,4 +123,34 @@ public interface UcCarRealTimeMapper extends BaseMapper<UcCarRealTime> {
             "road, report_time AS reportTime " +
             "FROM uc_car_real_time_current WHERE user_phone = #{phone} ORDER BY report_time DESC, id DESC LIMIT 1")
     UcCarRealTime selectLatestByPhoneFromCurrent(@Param("phone") String phone);
+
+    @Select("""
+            SELECT id, user_phone AS userPhone, car_license AS carLicense, current_pile AS currentPile,
+                   real_speed AS realSpeed,
+                   CASE
+                     WHEN LOWER(TRIM(COALESCE(driving_direction, ''))) IN ('哈密', '下行', 'hami', 'towh', 'to_wh', 'tuyugou_to_hamimi', 'turpan_to_hami', 'to_hami') THEN 1
+                     WHEN LOWER(TRIM(COALESCE(driving_direction, ''))) IN ('吐鲁番', '上行', 'turpan', 'tulufan', 'toez', 'to_ez', 'hamimi_to_tuyugou', 'hami_to_turpan', 'to_turpan') THEN 2
+                     ELSE direction
+                   END AS direction,
+                   driving_direction AS drivingDirection, lane_number AS laneNumber,
+                   road, report_time AS reportTime
+            FROM uc_car_real_time_current
+            WHERE report_time IS NULL OR report_time >= #{minReportTime}
+            """)
+    List<UcCarRealTime> selectCurrentForOverview(@Param("minReportTime") LocalDateTime minReportTime);
+
+    @Select("SELECT id, user_phone AS userPhone, car_license AS carLicense, current_pile AS currentPile, " +
+            "real_speed AS realSpeed, direction, " +
+            "driving_direction AS drivingDirection, lane_number AS laneNumber, " +
+            "road, report_time AS reportTime " +
+            "FROM uc_car_real_time " +
+            "WHERE user_phone = #{phone} " +
+            "AND UPPER(car_license) = UPPER(#{carLicense}) " +
+            "AND report_time >= #{startTime} " +
+            "AND report_time <= #{endTime} " +
+            "ORDER BY report_time ASC, id ASC")
+    List<UcCarRealTime> selectByPhoneAndCarBetween(@Param("phone") String phone,
+                                                   @Param("carLicense") String carLicense,
+                                                   @Param("startTime") LocalDateTime startTime,
+                                                   @Param("endTime") LocalDateTime endTime);
 }

@@ -12,8 +12,18 @@ import java.time.LocalDateTime;
 public class NavigationSettlement {
     @TableId(type = IdType.AUTO)
     private Long id;             // 结算ID
+    private String settlementId;  // 后端结算流水号
+    private String navigationSessionId; // 前端导航会话ID，结算幂等键
     private String userPhone;    // 用户手机号
     private String carLicense;   // 车辆号牌
+    private String reservationId; // 通行凭证ID
+    private String endReason;    // 导航结束原因
+    private Long endedAt;        // 导航结束时间戳（毫秒）
+    private String carSnapshotJson; // 结束时车辆快照JSON
+    private String itemsJson;    // 扣分明细JSON
+    private Integer totalDeduction; // 前端提交总扣分
+    private Integer deductedPoints; // 实际扣除积分
+    private Integer remainingPoints; // 扣除后剩余积分
     private String startPile;    // 起点桩号
     private String endPile;      // 终点桩号
     private String eventInfo;    // 事件记录（JSON）

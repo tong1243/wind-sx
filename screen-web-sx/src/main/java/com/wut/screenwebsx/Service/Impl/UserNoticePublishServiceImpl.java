@@ -28,6 +28,7 @@ public class UserNoticePublishServiceImpl implements UserNoticePublishService {
     private static final String NOTICE_TYPE_RESERVATION_SUBMIT_FAILED = "reservation_submit_failed";
     private static final String NOTICE_TYPE_RESERVATION_PASSED = "reservation_audit_passed";
     private static final String NOTICE_TYPE_RESERVATION_REJECTED = "reservation_audit_rejected";
+    private static final String NOTICE_TYPE_NAVIGATION_SETTLEMENT = "navigation_settlement";
 
     private static final Map<String, NoticeTemplate> NOTICE_TEMPLATE_MAP = buildNoticeTemplateMap();
 
@@ -131,6 +132,31 @@ public class UserNoticePublishServiceImpl implements UserNoticePublishService {
         params.put("endPoint", valueOrDash(endPoint));
         params.put("rejectReason", valueOrDash(rejectReason));
         saveNoticeByTemplate(phone, NOTICE_TYPE_RESERVATION_REJECTED, params, null);
+    }
+
+    @Override
+    public void publishNavigationSettlement(String phone,
+                                            String licensePlate,
+                                            String navigationSessionId,
+                                            Integer deductedPoints,
+                                            Integer remainingPoints,
+                                            String endReason,
+                                            String travelMileage,
+                                            String travelDuration,
+                                            String endedAt) {
+        if (!hasText(phone)) {
+            return;
+        }
+        Map<String, String> params = new HashMap<>();
+        params.put("licensePlate", valueOrDash(licensePlate));
+        params.put("navigationSessionId", valueOrDash(navigationSessionId));
+        params.put("deductedPoints", String.valueOf(deductedPoints == null ? 0 : deductedPoints));
+        params.put("remainingPoints", String.valueOf(remainingPoints == null ? 0 : remainingPoints));
+        params.put("endReason", toNavigationEndReasonText(endReason));
+        params.put("travelMileage", valueOrDash(travelMileage));
+        params.put("travelDuration", valueOrDash(travelDuration));
+        params.put("endedAt", valueOrDash(endedAt));
+        saveNoticeByTemplate(phone, NOTICE_TYPE_NAVIGATION_SETTLEMENT, params, null);
     }
 
     private void saveNotice(String phone, String noticeType, String title, String content, Long relatedId) {
@@ -240,7 +266,24 @@ public class UserNoticePublishServiceImpl implements UserNoticePublishService {
                 "出行预约审核驳回通知",
                 "您的出行预约未通过审核。\n出行时间：{travelTimeSlot}\n起点：{startPoint}\n终点：{endPoint}\n车牌号：{licensePlate}\n驳回原因：{rejectReason}"
         ));
+        map.put(NOTICE_TYPE_NAVIGATION_SETTLEMENT, new NoticeTemplate(
+                "导航结算完成通知",
+                "本次行程已完成结算。\n车牌号：{licensePlate}\n行驶里程：{travelMileage}\n行驶时长：{travelDuration}\n结束时间：{endedAt}\n本次行程扣分：{deductedPoints}\n剩余积分：{remainingPoints}\n结束原因：{endReason}"
+        ));
         return map;
+    }
+
+    private String toNavigationEndReasonText(String endReason) {
+        if ("manual".equals(endReason)) {
+            return "手动结束";
+        }
+        if ("route_completed".equals(endReason)) {
+            return "到达终点";
+        }
+        if ("ramp_timeout".equals(endReason)) {
+            return "匝道超时";
+        }
+        return valueOrDash(endReason);
     }
 
     private record NoticeTemplate(String title, String content) {}

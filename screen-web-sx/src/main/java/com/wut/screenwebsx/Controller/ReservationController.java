@@ -35,4 +35,11 @@ public class ReservationController {
         String phone = authentication.getName();
         return reservationService.getCertificate(phone);
     }
+
+    // 4.4 结束预约状态
+    @PostMapping("/{reservationId}/finish")
+    public ApiResponse<?> finishReservation(@PathVariable Long reservationId, Authentication authentication) {
+        String phone = authentication.getName();
+        return reservationService.finishReservation(reservationId, phone);
+    }
 }

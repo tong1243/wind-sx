@@ -334,6 +334,17 @@ public class WindControlPersistenceService {
     }
 
     /**
+     * 启动时清空运行态持久化数据。
+     *
+     * 保留静态基础表和历史事件记录，仅删除运行期快照和临时方案。
+     */
+    public void clearRuntimeStateOnStartup() {
+        jdbcTemplate.update("DELETE FROM wind_control_kv");
+        jdbcTemplate.update("DELETE FROM wind_control_plan");
+        jdbcTemplate.update("DELETE FROM wind_detection_event");
+    }
+
+    /**
      * 将 Map 安全序列化为 JSON 字符串，失败时抛出明确异常。
      */
     private String writeJson(Map<String, Object> payload) {

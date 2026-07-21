@@ -17,4 +17,6 @@ public interface UserAuthService extends IService<UserAccount> {
     ApiResponse<?> resetPassword(ResetPasswordRequest request);
     // 修改密码
     ApiResponse<?> changePassword(ChangePasswordRequest request, String phone);
+    // 注销账号
+    ApiResponse<?> deleteAccount(String phone);
 }

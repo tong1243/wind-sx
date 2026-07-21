@@ -58,6 +58,25 @@ public class SpeedThresholdStaticServiceImpl extends ServiceImpl<SpeedThresholdS
         return speedThresholdStaticMapper.update(null, wrapper) > 0;
     }
 
+    @Override
+    public boolean updateEnabledByWindLevel(int windLevel, Integer lightVehicleSpeedLimit, Integer heavyVehicleSpeedLimit) {
+        if (windLevel < 1 || windLevel > 12) {
+            return false;
+        }
+        LambdaUpdateWrapper<SpeedThresholdStatic> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(SpeedThresholdStatic::getIsEnabled, 1)
+                .and(w -> w.isNull(SpeedThresholdStatic::getMinWindLevel)
+                        .or()
+                        .le(SpeedThresholdStatic::getMinWindLevel, windLevel))
+                .and(w -> w.isNull(SpeedThresholdStatic::getMaxWindLevel)
+                        .or()
+                        .ge(SpeedThresholdStatic::getMaxWindLevel, windLevel))
+                .set(lightVehicleSpeedLimit != null, SpeedThresholdStatic::getLightVehicleSpeedLimit, lightVehicleSpeedLimit)
+                .set(heavyVehicleSpeedLimit != null, SpeedThresholdStatic::getHeavyVehicleSpeedLimit, heavyVehicleSpeedLimit)
+                .set(SpeedThresholdStatic::getUpdateTime, LocalDateTime.now());
+        return speedThresholdStaticMapper.update(null, wrapper) > 0;
+    }
+
     private List<String> levelNameCandidates(String controlLevelName) {
         String name = controlLevelName == null ? "" : controlLevelName.trim();
         if (name.contains("一") || name.contains("红")) {

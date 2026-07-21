@@ -8,6 +8,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -58,5 +59,12 @@ public class AuthController {
         // 从Security上下文获取当前用户手机号
         String phone = authentication.getName();
         return userAuthService.changePassword(request, phone);
+    }
+
+    // 2.3 注销账号（个人中心）
+    @DeleteMapping("/personal-center/account")
+    public ApiResponse<?> deleteAccount(Authentication authentication) {
+        String phone = authentication.getName();
+        return userAuthService.deleteAccount(phone);
     }
 }

@@ -2,6 +2,7 @@ package com.wut.screenwebsx.Service;
 
 import com.wut.screendbmysqlsx.Model.ControlPlanStatic;
 import com.wut.screendbmysqlsx.Service.ControlPlanStaticService;
+import com.wut.screendbmysqlsx.Service.VmsContentTemplateStaticService;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -18,14 +19,17 @@ import java.util.TreeSet;
 public class WindControlPlanLibraryService {
     private final WindControlStateService stateService;
     private final ControlPlanStaticService controlPlanStaticService;
+    private final VmsContentTemplateStaticService vmsContentTemplateStaticService;
 
     /**
      * 构造预案库服务并注入共享状态；该服务实现 4.4 模块预案与文案的维护逻辑。
      */
     public WindControlPlanLibraryService(WindControlStateService stateService,
-                                         ControlPlanStaticService controlPlanStaticService) {
+                                         ControlPlanStaticService controlPlanStaticService,
+                                         VmsContentTemplateStaticService vmsContentTemplateStaticService) {
         this.stateService = stateService;
         this.controlPlanStaticService = controlPlanStaticService;
+        this.vmsContentTemplateStaticService = vmsContentTemplateStaticService;
     }
 
     /**
@@ -70,6 +74,7 @@ public class WindControlPlanLibraryService {
         if (requestBody.containsKey("description") && !requestBody.containsKey("riskSectionPlan")) {
             existing.put("riskSectionPlan", requestBody.get("description"));
         }
+        applyStructuredPlanFields(existing, requestBody);
         existing.put("description", stateService.stringValue(existing.get("riskSectionPlan")));
 
         ControlPlanStatic updated = new ControlPlanStatic();
@@ -85,12 +90,21 @@ public class WindControlPlanLibraryService {
         }
 
         stateService.refreshControlPlanLibraryFromStatic();
+        syncThresholdRowsFromPlan(level, existing);
+        int syncedTemplates = vmsContentTemplateStaticService.syncSpeedLimitsByControlLevel(
+                dbPlan.getControlLevelName(),
+                nullableInt(existing.get("passengerSpeedLimit")),
+                nullableInt(existing.get("freightSpeedLimit"))
+        );
         String autoContent = buildPlanVmsContent(existing);
         stateService.getVmsContentLibrary().put(level, autoContent);
         syncPublishFacilityPostInformation(autoContent);
         stateService.persistSnapshot();
         Map<String, Object> response = buildControlPlanResponse(level, existing);
-        response.put("dbSync", Map.of("controlPlanStaticUpdated", true));
+        response.put("dbSync", Map.of(
+                "controlPlanStaticUpdated", true,
+                "vmsContentTemplateStaticUpdated", syncedTemplates
+        ));
         return response;
     }
 
@@ -245,8 +259,8 @@ public class WindControlPlanLibraryService {
         row.put("windLevelDesc", stateService.stringValue(plan.getWindLevelDesc()));
         putIfNotNull(row, "minWindLevel", parseMinWindLevel(plan.getWindLevelDesc()));
         putIfNotNull(row, "maxWindLevel", parseMaxWindLevel(plan.getWindLevelDesc()));
-        putIfNotNull(row, "passengerSpeedLimit", parseVehicleSpeedLimit(plan.getRiskSectionPlan(), "小型车"));
-        putIfNotNull(row, "freightSpeedLimit", parseVehicleSpeedLimit(plan.getRiskSectionPlan(), "大型车"));
+        putIfNotNull(row, "passengerSpeedLimit", parseVehicleSpeedLimit(plan.getRiskSectionPlan(), "小型车", "小客车", "轻型车"));
+        putIfNotNull(row, "freightSpeedLimit", parseVehicleSpeedLimit(plan.getRiskSectionPlan(), "大型车", "客货车", "货车", "重型车", "危化品车"));
         row.put("description", stateService.stringValue(plan.getRiskSectionPlan()));
         row.put("riskSectionPlan", stateService.stringValue(plan.getRiskSectionPlan()));
         row.put("upstreamExitPlan", stateService.stringValue(plan.getUpstreamExitPlan()));
@@ -308,9 +322,15 @@ public class WindControlPlanLibraryService {
         return nullableInt(numbers.length > 1 ? numbers[1] : numbers[0]);
     }
 
-    private Integer parseVehicleSpeedLimit(String plan, String vehicleName) {
+    private Integer parseVehicleSpeedLimit(String plan, String... vehicleNames) {
         String text = stateService.stringValue(plan);
-        int vehicleIndex = text.indexOf(vehicleName);
+        int vehicleIndex = -1;
+        for (String vehicleName : vehicleNames) {
+            vehicleIndex = text.indexOf(vehicleName);
+            if (vehicleIndex >= 0) {
+                break;
+            }
+        }
         if (vehicleIndex < 0) {
             return null;
         }
@@ -328,6 +348,93 @@ public class WindControlPlanLibraryService {
             }
         }
         return nullableInt(digits.toString());
+    }
+
+    private void applyStructuredPlanFields(Map<String, Object> plan, Map<String, Object> requestBody) {
+        Integer minWindLevel = nullableInt(requestBody.get("minWindLevel"));
+        Integer maxWindLevel = nullableInt(requestBody.get("maxWindLevel"));
+        Integer passengerLimit = nullableInt(requestBody.get("passengerSpeedLimit"));
+        Integer freightLimit = nullableInt(requestBody.get("freightSpeedLimit"));
+
+        if (minWindLevel != null || maxWindLevel != null) {
+            int min = minWindLevel == null ? stateService.intValue(plan.get("minWindLevel"), 0) : minWindLevel;
+            int max = maxWindLevel == null ? stateService.intValue(plan.get("maxWindLevel"), min) : maxWindLevel;
+            plan.put("minWindLevel", min);
+            plan.put("maxWindLevel", max);
+            plan.put("windLevelDesc", buildWindLevelDesc(min, max));
+        }
+
+        if (passengerLimit != null || freightLimit != null) {
+            int passenger = passengerLimit == null
+                    ? stateService.intValue(plan.get("passengerSpeedLimit"), 0)
+                    : passengerLimit;
+            int freight = freightLimit == null
+                    ? stateService.intValue(plan.get("freightSpeedLimit"), passenger)
+                    : freightLimit;
+            plan.put("passengerSpeedLimit", passenger);
+            plan.put("freightSpeedLimit", freight);
+            plan.put("riskSectionPlan", syncPlanSpeedText(
+                    stateService.stringValue(plan.get("riskSectionPlan")),
+                    passenger,
+                    freight
+            ));
+        }
+    }
+
+    private String buildWindLevelDesc(int minWindLevel, int maxWindLevel) {
+        if (minWindLevel <= 0) {
+            return (maxWindLevel + 1) + "级以下";
+        }
+        if (minWindLevel == maxWindLevel) {
+            return minWindLevel + "级";
+        }
+        return Math.min(minWindLevel, maxWindLevel) + "-" + Math.max(minWindLevel, maxWindLevel) + "级";
+    }
+
+    private String syncPlanSpeedText(String text, int passengerLimit, int freightLimit) {
+        String normalized = stateService.stringValue(text);
+        if (normalized.isBlank()) {
+            return String.format(Locale.ROOT, "小客车限速%dkm/h，客货车限速%dkm/h", passengerLimit, freightLimit);
+        }
+        normalized = replaceVehicleSpeed(normalized, passengerLimit, "小客车", "小型车", "轻型车");
+        normalized = replaceVehicleSpeed(normalized, freightLimit, "客货车", "大型车", "货车", "重型车", "危化品车");
+        if (parseVehicleSpeedLimit(normalized, "小客车", "小型车", "轻型车") == null
+                && parseVehicleSpeedLimit(normalized, "客货车", "大型车", "货车", "重型车", "危化品车") == null
+                && normalized.contains("限速")) {
+            return normalized.replaceFirst("限速\\s*\\d+", "限速" + passengerLimit);
+        }
+        return normalized;
+    }
+
+    private String replaceVehicleSpeed(String text, int speedLimit, String... vehicleNames) {
+        String result = text;
+        for (String vehicleName : vehicleNames) {
+            int vehicleIndex = result.indexOf(vehicleName);
+            if (vehicleIndex < 0) {
+                continue;
+            }
+            int speedIndex = result.indexOf("限速", vehicleIndex);
+            if (speedIndex < 0) {
+                continue;
+            }
+            int digitStart = -1;
+            int digitEnd = -1;
+            for (int i = speedIndex + 2; i < result.length(); i++) {
+                char ch = result.charAt(i);
+                if (Character.isDigit(ch)) {
+                    if (digitStart < 0) {
+                        digitStart = i;
+                    }
+                    digitEnd = i + 1;
+                } else if (digitStart >= 0) {
+                    break;
+                }
+            }
+            if (digitStart >= 0) {
+                return result.substring(0, digitStart) + speedLimit + result.substring(digitEnd);
+            }
+        }
+        return result;
     }
 
     private String buildPlanVmsContent(Map<String, Object> plan) {

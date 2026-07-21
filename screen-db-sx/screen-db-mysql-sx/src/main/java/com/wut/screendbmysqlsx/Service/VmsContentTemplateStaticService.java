@@ -25,8 +25,12 @@ public interface VmsContentTemplateStaticService extends IService<VmsContentTemp
     VmsContentTemplateStatic matchTemplate(String controlLevel, String publishPosition, String vehicleType);
 
     /**
+     * 按管控等级同步模板文本中的限速值。
+     */
+    int syncSpeedLimitsByControlLevel(String controlLevel, Integer passengerSpeedLimit, Integer freightSpeedLimit);
+
+    /**
      * 按模板编码删除。
      */
     boolean removeByTemplateCode(String templateCode);
 }
-

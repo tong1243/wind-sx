@@ -24,4 +24,3 @@ public class UpdateSpeedThresholdByControlLevelReq {
     @Max(150)
     private Integer freightSpeedLimit;
 }
-

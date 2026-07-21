@@ -184,6 +184,16 @@ public class ResourceLibraryController {
     }
 
     /**
+     * 大屏中队出警记录表格接口。
+     *
+     * @return 出警中队、出警原因、出警时间、归队时间
+     */
+    @GetMapping("/control-dashboard/dispatch-records")
+    public DefaultDataResp listDispatchRecordTableRows() {
+        return ModelTransformUtil.getDefaultDataInstance("dashboard dispatch records", resourceService.listDispatchRecordTableRows());
+    }
+
+    /**
      * 新增一条中队出警记录。
      *
      * @param body 出警记录字段（teamId/team、dispatchReason、dispatchTime 等）

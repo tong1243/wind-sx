@@ -46,6 +46,7 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
     private static final int RESERVATION_PENDING = 2;
     private static final int RESERVATION_APPROVED = 1;
     private static final int RESERVATION_REJECTED = 0;
+    private static final int RESERVATION_FINISHED = 3;
     private static final Set<String> VEHICLE_AUDIT_STATUS_SET = Set.of("unaudited", "passed", "rejected");
     private static final Map<String, String> REJECT_ITEM_OPTIONS = buildRejectItemOptions();
     private static final Map<String, String> LEGACY_REJECT_ITEM_OPTIONS = buildLegacyRejectItemOptions();
@@ -494,6 +495,9 @@ public class OperationMaintenanceServiceImpl implements OperationMaintenanceServ
         }
         if (isPassed == RESERVATION_REJECTED) {
             return "rejected";
+        }
+        if (isPassed == RESERVATION_FINISHED) {
+            return "finished";
         }
         return "unknown";
     }

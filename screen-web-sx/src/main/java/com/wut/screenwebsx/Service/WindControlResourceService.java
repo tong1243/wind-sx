@@ -2,9 +2,15 @@ package com.wut.screenwebsx.Service;
 
 import com.wut.screendbmysqlsx.Model.DutyTeamStatic;
 import com.wut.screendbmysqlsx.Service.DutyTeamStaticService;
+import jakarta.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -16,7 +22,11 @@ import java.util.UUID;
  * 4.3 人员设备库业务服务。
  */
 @Service
+@Slf4j
 public class WindControlResourceService {
+    private static final DateTimeFormatter DISPATCH_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final long DEFAULT_RETURN_DELAY_MS = 2 * 60 * 60 * 1000L;
+
     private final WindControlStateService stateService;
     private final WindControlPersistenceService persistenceService;
     private final DutyTeamStaticService dutyTeamStaticService;
@@ -33,6 +43,11 @@ public class WindControlResourceService {
         this.persistenceService = persistenceService;
         this.dutyTeamStaticService = dutyTeamStaticService;
         this.jdbcTemplate = jdbcTemplate;
+    }
+
+    @PostConstruct
+    public void init() {
+        ensureDispatchRecordStaticTable();
     }
 
     /**
@@ -192,11 +207,47 @@ public class WindControlResourceService {
                 ? "CASE WHEN return_time IS NULL THEN NULL ELSE UNIX_TIMESTAMP(return_time) * 1000 END"
                 : "return_time";
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "SELECT record_id AS recordId, team_id AS teamId, team, dispatch_reason AS dispatchReason, " +
+                "SELECT record_id AS recordId, team_id AS teamId, COALESCE(NULLIF(team, ''), team_name) AS team, team_name AS teamName, dispatch_reason AS dispatchReason, " +
                         dispatchTimeExpr + " AS dispatchTime, " + returnTimeExpr + " AS returnTime, " +
                         "dispatch_status AS dispatchStatus, plan_id AS planId, segment, direction " +
                         "FROM duty_team_dispatch_record_static ORDER BY dispatch_time DESC, id DESC"
         );
+        return rows;
+    }
+
+    /**
+     * 按方案 ID 查询最近一条中队出警记录，用于执行发布时避免重复新增。
+     */
+    public Map<String, Object> findLatestDispatchRecordByPlanId(String planId) {
+        String normalizedPlanId = stateService.stringValue(planId);
+        if (normalizedPlanId.isBlank()) {
+            return null;
+        }
+        for (Map<String, Object> record : listDispatchRecords()) {
+            if (normalizedPlanId.equalsIgnoreCase(stateService.stringValue(record.get("planId")))) {
+                log.info("dispatch record found by planId: planId={}, recordId={}",
+                        normalizedPlanId,
+                        stateService.stringValue(record.get("recordId")));
+                return new LinkedHashMap<>(record);
+            }
+        }
+        log.info("dispatch record not found by planId: planId={}", normalizedPlanId);
+        return null;
+    }
+
+    /**
+     * 查询大屏中队出警记录表格，仅返回四个展示字段。
+     */
+    public List<Map<String, Object>> listDispatchRecordTableRows() {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Map<String, Object> source : listDispatchRecords()) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("dispatchTeam", stateService.stringValue(source.get("team")));
+            row.put("dispatchReason", stateService.stringValue(source.get("dispatchReason")));
+            row.put("dispatchTime", formatTime(source.get("dispatchTime")));
+            row.put("returnTime", formatTime(source.get("returnTime")));
+            rows.add(row);
+        }
         return rows;
     }
 
@@ -221,7 +272,7 @@ public class WindControlResourceService {
         record.put("dispatchTime", dispatchTime);
         record.put("dispatchStatus", dispatchStatus);
         if (!record.containsKey("returnTime")) {
-            record.put("returnTime", null);
+            record.put("returnTime", dispatchTime + DEFAULT_RETURN_DELAY_MS);
         }
         boolean dispatchTimeDateLike = isDateLikeColumn("duty_team_dispatch_record_static", "dispatch_time");
         boolean returnTimeDateLike = isDateLikeColumn("duty_team_dispatch_record_static", "return_time");
@@ -233,6 +284,7 @@ public class WindControlResourceService {
         List<Object> params = new ArrayList<>();
         params.add(recordId);
         params.add(stateService.stringValue(record.get("teamId")));
+        params.add(stateService.stringValue(record.get("team")));
         params.add(stateService.stringValue(record.get("team")));
         params.add(stateService.stringValue(record.get("dispatchReason")));
         params.add(dispatchTime);
@@ -248,10 +300,16 @@ public class WindControlResourceService {
         params.add(stateService.intValue(record.get("direction"), 0));
         jdbcTemplate.update(
                 "INSERT INTO duty_team_dispatch_record_static " +
-                        "(record_id, team_id, team, dispatch_reason, dispatch_time, return_time, dispatch_status, plan_id, segment, direction, create_time, update_time) " +
-                        "VALUES (?, ?, ?, ?, " + dispatchTimeValueExpr + ", " + returnTimeValueExpr + ", ?, ?, ?, ?, NOW(), NOW())",
+                        "(record_id, team_id, team, team_name, dispatch_reason, dispatch_time, return_time, dispatch_status, plan_id, segment, direction, create_time, update_time) " +
+                        "VALUES (?, ?, ?, ?, ?, " + dispatchTimeValueExpr + ", " + returnTimeValueExpr + ", ?, ?, ?, ?, NOW(), NOW())",
                 params.toArray()
         );
+        log.info("dispatch record inserted: recordId={}, planId={}, team={}, reason={}, dispatchTime={}",
+                recordId,
+                stateService.stringValue(record.get("planId")),
+                stateService.stringValue(record.get("team")),
+                stateService.stringValue(record.get("dispatchReason")),
+                dispatchTime);
         return record;
     }
 
@@ -393,6 +451,15 @@ public class WindControlResourceService {
         }
     }
 
+    private String formatTime(Object value) {
+        long timestamp = toLong(value, 0L);
+        if (timestamp <= 0) {
+            return "";
+        }
+        LocalDateTime time = LocalDateTime.ofInstant(Instant.ofEpochMilli(timestamp), ZoneId.systemDefault());
+        return DISPATCH_TIME_FORMATTER.format(time);
+    }
+
     private List<String> parseMemberIds(String memberIdsRaw) {
         if (memberIdsRaw == null || memberIdsRaw.isBlank()) {
             return new ArrayList<>();
@@ -419,6 +486,7 @@ public class WindControlResourceService {
                   record_id VARCHAR(64) NOT NULL,
                   team_id VARCHAR(64) NOT NULL,
                   team VARCHAR(128) NOT NULL,
+                  team_name VARCHAR(128) NOT NULL DEFAULT '',
                   dispatch_reason VARCHAR(128) NOT NULL,
                   dispatch_time BIGINT NOT NULL,
                   return_time BIGINT NULL,
@@ -435,6 +503,7 @@ public class WindControlResourceService {
         ensureColumnExists("duty_team_dispatch_record_static", "record_id", "VARCHAR(64) NOT NULL DEFAULT ''");
         ensureColumnExists("duty_team_dispatch_record_static", "team_id", "VARCHAR(64) NOT NULL DEFAULT ''");
         ensureColumnExists("duty_team_dispatch_record_static", "team", "VARCHAR(128) NOT NULL DEFAULT ''");
+        ensureColumnExists("duty_team_dispatch_record_static", "team_name", "VARCHAR(128) NOT NULL DEFAULT ''");
         ensureColumnExists("duty_team_dispatch_record_static", "dispatch_reason", "VARCHAR(128) NOT NULL DEFAULT ''");
         ensureColumnExists("duty_team_dispatch_record_static", "dispatch_time", "BIGINT NOT NULL DEFAULT 0");
         ensureColumnExists("duty_team_dispatch_record_static", "return_time", "BIGINT NULL");

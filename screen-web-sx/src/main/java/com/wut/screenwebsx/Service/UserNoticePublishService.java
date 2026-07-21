@@ -16,4 +16,14 @@ public interface UserNoticePublishService {
     void publishReservationAuditPassed(String phone, String licensePlate, String travelTimeSlot, String startPoint, String endPoint);
 
     void publishReservationAuditRejected(String phone, String licensePlate, String travelTimeSlot, String startPoint, String endPoint, String rejectReason);
+
+    void publishNavigationSettlement(String phone,
+                                     String licensePlate,
+                                     String navigationSessionId,
+                                     Integer deductedPoints,
+                                     Integer remainingPoints,
+                                     String endReason,
+                                     String travelMileage,
+                                     String travelDuration,
+                                     String endedAt);
 }

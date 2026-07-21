@@ -16,4 +16,7 @@ public interface TravelReservationService {
 
     // 4.3 获取通行凭证
     ApiResponse<?> getCertificate(String phone);
+
+    // 4.4 结束预约状态
+    ApiResponse<?> finishReservation(Long reservationId, String phone);
 }

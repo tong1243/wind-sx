@@ -1,6 +1,7 @@
 package com.wut.screenwebsx.Controller;
 
 import com.wut.screencommonsx.Request.Wind.UpdateSpeedThresholdByControlLevelReq;
+import com.wut.screencommonsx.Request.Wind.UpdateSpeedThresholdValueReq;
 import com.wut.screencommonsx.Response.DefaultDataResp;
 import com.wut.screencommonsx.Util.ModelTransformUtil;
 import com.wut.screenwebsx.Service.WindControlWindImpactService;
@@ -55,14 +56,16 @@ public class WindImpactController {
      * 实际下发数据使用区间内各路段的结束桩号。
      *
      * @param direction 可选方向（1=去往哈密方向，2=去往吐鲁番方向）
+     * @param planId 可选方案ID，传入后仅返回该方案对应的管控区间
      * @return 管控区间下发桩号列表
      */
     @GetMapping("/wind-control-intervals")
     public DefaultDataResp listWindControlIntervals(@RequestParam(value = "direction", required = false) Integer direction,
-                                                    @RequestParam(value = "timestamp", required = false) Long timestamp) {
+                                                    @RequestParam(value = "timestamp", required = false) Long timestamp,
+                                                    @RequestParam(value = "planId", required = false) String planId) {
         return ModelTransformUtil.getDefaultDataInstance(
                 "wind control intervals",
-                windImpactService.listControlIntervalSendRanges(direction, timestamp)
+                windImpactService.listControlIntervalSendRanges(direction, timestamp, planId)
         );
     }
 
@@ -82,22 +85,23 @@ public class WindImpactController {
     }
 
     /**
-     * 按管控等级更新阈值（主入口）。
+     * 更新指定风级限速阈值（主入口）。
      *
-     * @param controlLevel 被编辑的管控等级（1-5）
+     * @param windLevel 被编辑的风力等级（1-12）
      * @param req 阈值更新参数
      * @return 更新结果
      */
-    @PutMapping("/wind-speed-thresholds/{controlLevel}")
-    public DefaultDataResp updateWindSpeedThreshold(@PathVariable("controlLevel") int controlLevel,
-                                                    @Valid @RequestBody UpdateSpeedThresholdByControlLevelReq req) {
+    @PutMapping("/wind-speed-thresholds/{windLevel}")
+    public DefaultDataResp updateWindSpeedThreshold(@PathVariable("windLevel") int windLevel,
+                                                    @Valid @RequestBody UpdateSpeedThresholdValueReq req) {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("windLevelDesc", req.getWindLevelDesc());
+        body.put("windLevel", windLevel);
+        body.put("controlLevel", req.getControlLevel());
         body.put("passengerSpeedLimit", req.getPassengerSpeedLimit());
         body.put("freightSpeedLimit", req.getFreightSpeedLimit());
         return ModelTransformUtil.getDefaultDataInstance(
-                "wind speed threshold updated by control level",
-                windImpactService.updateSpeedThresholdByControlLevel(controlLevel, body)
+                "wind speed threshold updated",
+                windImpactService.updateSpeedThreshold(body)
         );
     }
 
@@ -144,8 +148,7 @@ public class WindImpactController {
     /**
      * 4.2.3 实时大风时空影响研判。
      *
-     * 固定区间：K3178-K3192、K3192-K3197、K3197-K3204；
-     * 固定双向：方向1(哈密) + 方向2(吐鲁番)，共 6 组记录。
+     * 固定区间：K3178-K3192、K3192-K3197、K3197-K3204，共 6 组记录。
      *
      * @param timestamp 查询时间戳（毫秒）
      * @return 时空影响研判结果（实时）
@@ -161,8 +164,7 @@ public class WindImpactController {
     /**
      * 4.2.3 未来2小时大风时空影响研判。
      *
-     * 固定区间：K3178-K3192、K3192-K3197、K3197-K3204；
-     * 固定双向：方向1(哈密) + 方向2(吐鲁番)，共 6 组记录。
+     * 固定区间：K3178-K3192、K3192-K3197、K3197-K3204，共 6 组记录。
      *
      * @param timestamp 查询时间戳（毫秒）
      * @return 时空影响研判结果（未来2小时）

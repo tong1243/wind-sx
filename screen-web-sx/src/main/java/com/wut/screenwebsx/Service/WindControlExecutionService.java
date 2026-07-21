@@ -1,9 +1,12 @@
 package com.wut.screenwebsx.Service;
 
 import com.wut.screendbmysqlsx.Model.WindData;
+import com.wut.screendbmysqlsx.Model.VmsContentTemplateStatic;
 import com.wut.screendbmysqlsx.Model.PublishFacilityStatic;
 import com.wut.screendbmysqlsx.Service.PublishFacilityStaticService;
+import com.wut.screendbmysqlsx.Service.VmsContentTemplateStaticService;
 import com.wut.screendbmysqlsx.Service.WindDataService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -25,6 +28,7 @@ import java.util.regex.Pattern;
  * 4.5 执行与发布业务服务。
  */
 @Service
+@Slf4j
 public class WindControlExecutionService {
     private static final int DIRECTION_HAMI = 1;
     private static final int DIRECTION_TURPAN = 2;
@@ -34,7 +38,6 @@ public class WindControlExecutionService {
     private static final String SAME_RISK_PLACEHOLDER = "同风险区段内方案";
     private static final String CAT_AUTO_UPDATE_RECOMMENDATION = "AUTO_UPDATE_RECOMMENDATION";
     private static final String KEY_AUTO_UPDATE_LATEST = "LATEST";
-    private static final String DISPATCH_REASON_ROAD_CLOSURE = "封路";
     private static final String EVENT_REPORT_EXPORT_DIR = "事件报告CSV导出";
     private static final String GREEN_ALERT_FIXED_VMS_CONTENT = "连霍高速欢迎您，请遵循指引安全驾驶。\n温馨提示：小型车限速120，大型车限速80。";
     private static final String VMS_KIND_INSIDE_SEGMENT = "INSIDE_SEGMENT";
@@ -76,10 +79,13 @@ public class WindControlExecutionService {
             .withZone(ZoneId.systemDefault());
     private final DateTimeFormatter exportFileDtf = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
     private final Pattern stakePattern = Pattern.compile("K(\\d+(?:\\+\\d+)?)", Pattern.CASE_INSENSITIVE);
+    private final long serviceStartTimestamp = System.currentTimeMillis();
 
     private final WindControlStateService stateService;
     private final WindDataService windDataService;
+    private final WindControlWindImpactService windImpactService;
     private final PublishFacilityStaticService publishFacilityStaticService;
+    private final VmsContentTemplateStaticService vmsContentTemplateStaticService;
     private final WindControlResourceService resourceService;
     private final JdbcTemplate jdbcTemplate;
 
@@ -88,12 +94,16 @@ public class WindControlExecutionService {
      */
     public WindControlExecutionService(WindControlStateService stateService,
                                        WindDataService windDataService,
+                                       WindControlWindImpactService windImpactService,
                                        PublishFacilityStaticService publishFacilityStaticService,
+                                       VmsContentTemplateStaticService vmsContentTemplateStaticService,
                                        WindControlResourceService resourceService,
                                        JdbcTemplate jdbcTemplate) {
         this.stateService = stateService;
         this.windDataService = windDataService;
+        this.windImpactService = windImpactService;
         this.publishFacilityStaticService = publishFacilityStaticService;
+        this.vmsContentTemplateStaticService = vmsContentTemplateStaticService;
         this.resourceService = resourceService;
         this.jdbcTemplate = jdbcTemplate;
     }
@@ -359,7 +369,10 @@ public class WindControlExecutionService {
                 : stateService.intValue(plan.get("recommendedControlLevel"), computedLevel);
         int currentLevel = body != null && body.containsKey("controlLevel")
                 ? stateService.intValue(body.get("controlLevel"), stateService.intValue(plan.get("controlLevel"), stateService.getDefaultControlLevel()))
-                : resolveConfiguredControlLevel(realtimeWind);
+                : levelInputsChanged
+                ? resolveConfiguredControlLevel(realtimeWind)
+                : stateService.intValue(plan.get("controlLevel"),
+                stateService.intValue(plan.get("currentControlLevel"), stateService.getDefaultControlLevel()));
 
         Map<String, Object> template = stateService.getControlPlanLibrary().get(recommendedLevel);
         if (template == null) {
@@ -499,7 +512,7 @@ public class WindControlExecutionService {
     }
 
     /**
-     * 发布指定草案方案：更新路段生效等级并记录事件标识，事件报告在关闭管控时落库。
+     * 发布指定草案方案：仅更新方案状态与路段生效等级。
      */
     public Map<String, Object> publishPlan(String planId) {
         Map<String, Object> plan = stateService.getGeneratedPlans().get(planId);
@@ -507,30 +520,70 @@ public class WindControlExecutionService {
             throw new IllegalArgumentException("plan not found: " + planId);
         }
         String planStatus = stateService.stringValue(plan.get("status"));
+        log.info("wind control publish start: planId={}, status={}, segment={}, direction={}",
+                planId,
+                planStatus,
+                stateService.stringValue(plan.get("segment")),
+                stateService.stringValue(plan.get("direction")));
         if ("PUBLISHED".equalsIgnoreCase(planStatus)) {
             throw new IllegalArgumentException("plan already published: " + planId);
         }
         if ("CLOSED".equalsIgnoreCase(planStatus)) {
             throw new IllegalArgumentException("closed plan cannot be published again: " + planId);
         }
-        plan.put("status", "PUBLISHED");
-        String segment = stateService.stringValue(plan.get("segment"));
         int level = stateService.intValue(plan.get("recommendedControlLevel"), stateService.getDefaultControlLevel());
-        stateService.getCurrentControlLevelBySegment().put(segment, level);
+        int beforeLevel = stateService.intValue(plan.get("controlLevel"), stateService.getDefaultControlLevel());
+        applyExecutedControlLevel(plan, level);
 
-        String eventId = "EVT-" + UUID.randomUUID().toString().substring(0, 6);
-        long publishTs = longValue(plan.get("timestamp"), System.currentTimeMillis());
-        plan.put("eventId", eventId);
-        plan.put("eventStartTime", dtf.format(Instant.ofEpochMilli(publishTs)));
-
-        // 执行发布后自动新增一条中队出警记录。
-        Map<String, Object> dispatchRecord = createDispatchRecordByPlan(plan, publishTs);
-        if (dispatchRecord != null && !dispatchRecord.isEmpty()) {
-            plan.put("dispatchRecordId", stateService.stringValue(dispatchRecord.get("recordId")));
-        }
+        plan.put("status", "PUBLISHED");
+        plan.put("executionApplied", true);
         stateService.getPersistenceService().upsertPlan(plan);
         stateService.persistSnapshot();
+        log.info("wind control publish done: planId={}, status={}, beforeControlLevel={}, appliedControlLevel={}, recommendedControlLevel={}, eventId={}, dispatchRecordId={}",
+                planId,
+                stateService.stringValue(plan.get("status")),
+                beforeLevel,
+                stateService.intValue(plan.get("controlLevel"), stateService.getDefaultControlLevel()),
+                stateService.intValue(plan.get("recommendedControlLevel"), stateService.getDefaultControlLevel()),
+                stateService.stringValue(plan.get("eventId")),
+                stateService.stringValue(plan.get("dispatchRecordId")));
         return new LinkedHashMap<>(plan);
+    }
+
+    /**
+     * 为已发布方案单独新增 RUNNING 事件报告。
+     */
+    public Map<String, Object> createRunningEventReportForPlan(String planId) {
+        Map<String, Object> plan = requirePublishedPlan(planId, "event report");
+        long publishTs = longValue(plan.get("timestamp"), System.currentTimeMillis());
+        Map<String, Object> eventRecord = ensureRunningEventRecord(plan, publishTs);
+        stateService.getPersistenceService().upsertPlan(plan);
+        stateService.persistSnapshot();
+        return new LinkedHashMap<>(eventRecord);
+    }
+
+    /**
+     * 为已发布方案单独新增中队出警记录。
+     */
+    public Map<String, Object> createDispatchRecordForPlan(String planId) {
+        Map<String, Object> plan = requirePublishedPlan(planId, "dispatch record");
+        long publishTs = longValue(plan.get("timestamp"), System.currentTimeMillis());
+        Map<String, Object> dispatchRecord = ensureDispatchRecord(plan, publishTs);
+        stateService.getPersistenceService().upsertPlan(plan);
+        stateService.persistSnapshot();
+        return new LinkedHashMap<>(dispatchRecord);
+    }
+
+    private Map<String, Object> requirePublishedPlan(String planId, String target) {
+        Map<String, Object> plan = stateService.getGeneratedPlans().get(planId);
+        if (plan == null) {
+            throw new IllegalArgumentException("plan not found: " + planId);
+        }
+        String status = stateService.stringValue(plan.get("status"));
+        if (!"PUBLISHED".equalsIgnoreCase(status)) {
+            throw new IllegalArgumentException("only published plan can create " + target + ": " + planId);
+        }
+        return plan;
     }
 
     /**
@@ -553,7 +606,7 @@ public class WindControlExecutionService {
         plan.put("closedTime", dtf.format(Instant.ofEpochMilli(closeTs)));
 
         // 管控解除后恢复默认等级（4级）。
-        stateService.getCurrentControlLevelBySegment().put(segment, stateService.getDefaultControlLevel());
+        applyExecutedControlLevel(plan, stateService.getDefaultControlLevel());
 
         String eventId = stateService.stringValue(plan.get("eventId"));
         Map<String, Object> eventRecord = findEventRecordById(eventId);
@@ -561,14 +614,12 @@ public class WindControlExecutionService {
             eventRecord = findLatestRunningRecordBySegment(segment);
         }
         if (eventRecord != null) {
+            String conclusionTime = plannedEventConclusionTime(eventRecord.get("startTime"), closeTs);
             eventRecord.put("status", "FINISHED");
-            eventRecord.put("endTime", dtf.format(Instant.ofEpochMilli(closeTs)));
-            eventRecord.put("durationMin", calcDurationByStart(eventRecord.get("startTime"), closeTs));
+            eventRecord.put("endTime", conclusionTime);
+            eventRecord.put("conclusionTime", conclusionTime);
+            eventRecord.put("durationMin", (int) (WINDOW_2H_MS / 60_000L));
             stateService.getPersistenceService().upsertEvent(eventRecord);
-        } else {
-            Map<String, Object> report = buildEventReportRecord(plan, closeTs);
-            stateService.getWindEventRecords().add(report);
-            stateService.getPersistenceService().upsertEvent(report);
         }
 
         stateService.getPersistenceService().upsertPlan(plan);
@@ -582,20 +633,48 @@ public class WindControlExecutionService {
         }
         Map<String, Object> dispatch = safeMap(plan.get("dispatch"));
         String teamId = firstNonBlank(dispatch.get("teamId"), plan.get("teamId"));
-        String teamName = firstNonBlank(dispatch.get("teamName"), dispatch.get("team"), plan.get("team"));
+        String teamName = firstNonBlank(dispatch.get("teamName"), dispatch.get("team"), dispatch.get("name"), plan.get("team"));
+        if (teamName.isBlank() && !teamId.isBlank()) {
+            Map<String, Object> team = findTeamById(teamId, getDutyTeamsForExecution());
+            teamName = team == null ? "" : firstNonBlank(team.get("name"), team.get("teamName"), team.get("team"));
+        }
         if (!teamName.isBlank()) {
             teamName = teamName.replace("班组", "中队");
         }
+        String dispatchReason = normalizeManagementPlanText(
+                firstNonBlank(plan.get("controlEventText"), plan.get("managementPlan")),
+                stateService.intValue(plan.get("controlLevel"),
+                        stateService.intValue(plan.get("recommendedControlLevel"), stateService.getDefaultControlLevel()))
+        );
         Map<String, Object> record = new LinkedHashMap<>();
         record.put("teamId", teamId);
         record.put("team", teamName);
-        record.put("dispatchReason", DISPATCH_REASON_ROAD_CLOSURE);
+        record.put("dispatchReason", dispatchReason);
         record.put("dispatchTime", publishTs);
+        record.put("returnTime", publishTs + WINDOW_2H_MS);
         record.put("dispatchStatus", "DISPATCHED");
         record.put("planId", stateService.stringValue(plan.get("planId")));
         record.put("segment", firstNonBlank(plan.get("segmentText"), plan.get("segment")));
         record.put("direction", stateService.intValue(plan.get("direction"), DIRECTION_HAMI));
-        return resourceService.createDispatchRecord(record);
+        Map<String, Object> created = resourceService.createDispatchRecord(record);
+        log.info("wind control dispatch record created: planId={}, recordId={}, team={}, reason={}",
+                stateService.stringValue(plan.get("planId")),
+                stateService.stringValue(created == null ? null : created.get("recordId")),
+                teamName,
+                dispatchReason);
+        return created;
+    }
+
+    private Map<String, Object> ensureDispatchRecord(Map<String, Object> plan, long publishTs) {
+        if (plan == null) {
+            return new LinkedHashMap<>();
+        }
+        Map<String, Object> dispatchRecord = createDispatchRecordByPlan(plan, publishTs);
+        if (dispatchRecord != null && !dispatchRecord.isEmpty()) {
+            plan.put("dispatchRecordId", stateService.stringValue(dispatchRecord.get("recordId")));
+            return new LinkedHashMap<>(dispatchRecord);
+        }
+        return new LinkedHashMap<>();
     }
 
     /**
@@ -617,9 +696,12 @@ public class WindControlExecutionService {
             String endStake = firstNonBlank(stakes[1], interval.get("endStake"));
             int currentWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, latestRows);
             int recommendedWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, future2hRows);
-            int current = currentWindLevel > 0
+            Integer cachedCurrentLevel = findCurrentControlLevelForInterval(segment, interval);
+            int current = cachedCurrentLevel != null
+                    ? cachedCurrentLevel
+                    : currentWindLevel > 0
                     ? resolveConfiguredControlLevel(currentWindLevel)
-                    : resolveCurrentControlLevelForInterval(segment, interval);
+                    : stateService.getDefaultControlLevel();
             int recommended = resolveConfiguredControlLevel(recommendedWindLevel);
             if (recommended != current) {
                 Map<String, Object> item = new LinkedHashMap<>();
@@ -668,7 +750,11 @@ public class WindControlExecutionService {
     }
 
     private int resolveCurrentControlLevelForInterval(String segmentText, Map<String, Object> interval) {
-        int defaultLevel = stateService.getDefaultControlLevel();
+        Integer level = findCurrentControlLevelForInterval(segmentText, interval);
+        return level == null ? stateService.getDefaultControlLevel() : level;
+    }
+
+    private Integer findCurrentControlLevelForInterval(String segmentText, Map<String, Object> interval) {
         if (segmentText != null && !segmentText.isBlank()) {
             Integer level = stateService.getCurrentControlLevelBySegment().get(segmentText);
             if (level != null) {
@@ -689,7 +775,37 @@ public class WindControlExecutionService {
                 return level;
             }
         }
-        return defaultLevel;
+        return null;
+    }
+
+    private void applyExecutedControlLevel(Map<String, Object> plan, int level) {
+        if (plan == null) {
+            return;
+        }
+        plan.put("currentControlLevel", level);
+        plan.put("currentControlLevelText", levelToText(level));
+        plan.put("controlLevel", level);
+        plan.put("controlLevelText", levelToText(level));
+        for (Object key : Arrays.asList(
+                plan.get("segment"),
+                plan.get("segmentText"),
+                plan.get("intervalName"),
+                plan.get("controlInterval")
+        )) {
+            String text = stateService.stringValue(key).trim();
+            if (!text.isBlank()) {
+                stateService.getCurrentControlLevelBySegment().put(text, level);
+            }
+        }
+    }
+
+    private boolean isPublishedPlan(Map<String, Object> plan) {
+        return plan != null && "PUBLISHED".equalsIgnoreCase(stateService.stringValue(plan.get("status")));
+    }
+
+    private boolean hasExecutedControlLevel(Map<String, Object> plan) {
+        return plan != null
+                && (isPublishedPlan(plan) || Boolean.TRUE.equals(plan.get("executionApplied")));
     }
 
     /**
@@ -794,7 +910,8 @@ public class WindControlExecutionService {
     public String exportWindEventRecordsCsv() {
         autoCloseExpiredPublishedPlans();
         StringBuilder sb = new StringBuilder();
-        sb.append("事件地点,风力等级,管控方案,发生时间,结束时间,管控范围,执勤人员").append('\n');
+        sb.append('\ufeff');
+        sb.append("事件地点,风力等级,管控方案,发生时间,结束时间,管控范围,执勤人员").append("\r\n");
         for (Map<String, Object> source : stateService.getWindEventRecords()) {
             Map<String, Object> r = toWindEventViewRow(source);
             sb.append(stateService.csv(r.get("incidentLocation"))).append(',')
@@ -803,7 +920,7 @@ public class WindControlExecutionService {
                     .append(stateService.csv(r.get("timeOfOccurrence"))).append(',')
                     .append(stateService.csv(r.get("conclusionTime"))).append(',')
                     .append(stateService.csv(r.get("controlPerimeter"))).append(',')
-                    .append(stateService.csv(r.get("onDutyPersonnel"))).append('\n');
+                    .append(stateService.csv(r.get("onDutyPersonnel"))).append("\r\n");
         }
         String csv = sb.toString();
         persistWindEventCsvToDesktop(csv);
@@ -822,7 +939,9 @@ public class WindControlExecutionService {
                 stateService.intValue(source.get("controlLevel"), stateService.getDefaultControlLevel())
         );
         String timeOfOccurrence = firstNonBlank(source.get("timeOfOccurrence"), source.get("startTime"));
-        String conclusionTime = firstNonBlank(source.get("conclusionTime"), source.get("endTime"));
+        String conclusionTime = timeOfOccurrence.isBlank()
+                ? firstNonBlank(source.get("conclusionTime"), source.get("endTime"))
+                : plannedEventConclusionTime(timeOfOccurrence, System.currentTimeMillis());
         String controlPerimeter = firstNonBlank(source.get("controlPerimeter"), source.get("segmentText"), source.get("segment"));
         String onDutyPersonnel = firstNonBlank(source.get("onDutyPersonnel"), source.get("contactStaff"));
 
@@ -938,6 +1057,8 @@ public class WindControlExecutionService {
                 LocalDateTime.ofInstant(Instant.ofEpochMilli(baseTimestamp + WINDOW_2H_MS), ZoneId.systemDefault())
         );
         List<WindData> latestRows = windDataService.listLatestSnapshot(baseTime);
+        Map<String, Map<String, Object>> future2hImpactByStakeAndDirection =
+                loadFuture2hImpactByStakeAndDirection(baseTimestamp);
 
         for (Map<String, Object> interval : intervals) {
             String intervalName = firstNonBlank(interval.get("intervalName"), interval.get("segment"));
@@ -951,13 +1072,13 @@ public class WindControlExecutionService {
                 refreshDraftPlanRecommendation(plan, interval);
             }
             if (plan != null) {
-                alignPlanLevelsWithWindRows(plan, interval, latestRows, future2hRows);
+                alignPlanLevelsWithWindRows(plan, interval, latestRows, future2hRows, future2hImpactByStakeAndDirection);
                 stateService.getPersistenceService().upsertPlan(plan);
             }
             Map<String, Object> row = plan == null
                     ? buildEmptyAutoGenerationRow(resolveDashboardSegmentText(interval, direction), direction)
                     : buildAutoGenerationRowFromPlan(plan, interval);
-            alignAutoGenerationLevelsWithWindRows(row, interval, latestRows, future2hRows);
+            alignAutoGenerationLevelsWithWindRows(row, interval, latestRows, future2hRows, future2hImpactByStakeAndDirection);
 
             if (!normalizedStatus.isBlank()) {
                 String rowStatus = stateService.stringValue(row.get("status")).toUpperCase(Locale.ROOT);
@@ -988,6 +1109,16 @@ public class WindControlExecutionService {
                     .add(new LinkedHashMap<>(row));
         }
         Comparator<Map<String, Object>> comparator = (a, b) -> {
+            double startA = resolveIntervalSortStakeValue(a);
+            double startB = resolveIntervalSortStakeValue(b);
+            if (Double.compare(startA, startB) != 0) {
+                return Double.compare(startA, startB);
+            }
+            double endA = resolveIntervalEndStakeValue(a);
+            double endB = resolveIntervalEndStakeValue(b);
+            if (Double.compare(endA, endB) != 0) {
+                return Double.compare(endA, endB);
+            }
             int sortA = stateService.intValue(a.get("sortNo"), Integer.MAX_VALUE);
             int sortB = stateService.intValue(b.get("sortNo"), Integer.MAX_VALUE);
             if (sortA != sortB) {
@@ -1006,6 +1137,48 @@ public class WindControlExecutionService {
             }
         }
         return rows;
+    }
+
+    private double resolveIntervalSortStakeValue(Map<String, Object> interval) {
+        Double start = toNullableDouble(interval.get("startStakeValue"));
+        Double end = toNullableDouble(interval.get("endStakeValue"));
+        if (start == null) {
+            start = parseStakeValue(stateService.stringValue(interval.get("startStake")));
+        }
+        if (end == null) {
+            end = parseStakeValue(stateService.stringValue(interval.get("endStake")));
+        }
+        if (start == null && end == null) {
+            return Double.MAX_VALUE;
+        }
+        if (start == null) {
+            return end;
+        }
+        if (end == null) {
+            return start;
+        }
+        return Math.min(start, end);
+    }
+
+    private double resolveIntervalEndStakeValue(Map<String, Object> interval) {
+        Double start = toNullableDouble(interval.get("startStakeValue"));
+        Double end = toNullableDouble(interval.get("endStakeValue"));
+        if (start == null) {
+            start = parseStakeValue(stateService.stringValue(interval.get("startStake")));
+        }
+        if (end == null) {
+            end = parseStakeValue(stateService.stringValue(interval.get("endStake")));
+        }
+        if (start == null && end == null) {
+            return Double.MAX_VALUE;
+        }
+        if (start == null) {
+            return end;
+        }
+        if (end == null) {
+            return start;
+        }
+        return Math.max(start, end);
     }
 
     private Map<String, Object> buildAutoGenerationRowFromPlan(Map<String, Object> plan, Map<String, Object> interval) {
@@ -1034,6 +1207,7 @@ public class WindControlExecutionService {
         row.put("publishTime", stateService.stringValue(plan.get("publishTime")));
         row.put("publishEndTime", stateService.stringValue(plan.get("publishEndTime")));
         row.put("status", stateService.stringValue(plan.get("status")));
+        row.put("executionApplied", Boolean.TRUE.equals(plan.get("executionApplied")));
         return row;
     }
 
@@ -1179,7 +1353,7 @@ public class WindControlExecutionService {
         autoCloseExpiredPublishedPlans();
         Map<String, Object> current = stateService.getGeneratedPlans().get(planId);
         if (current == null) {
-            throw new IllegalArgumentException("plan not found: " + planId);
+            return buildMissingExecutionTable(planId, timestamp);
         }
         Long recommendationTimestamp = timestamp != null && timestamp > 0
                 ? timestamp
@@ -1193,18 +1367,22 @@ public class WindControlExecutionService {
         Map<String, Object> table = new LinkedHashMap<>();
         int recommendedLevel = stateService.intValue(plan.get("recommendedControlLevel"),
                 stateService.intValue(plan.get("controlLevel"), stateService.getDefaultControlLevel()));
-        int controlLevel = stateService.intValue(plan.get("controlLevel"),
+        int currentLevel = stateService.intValue(plan.get("controlLevel"),
                 stateService.intValue(plan.get("currentControlLevel"), stateService.getDefaultControlLevel()));
         table.put("planId", stateService.stringValue(plan.get("planId")));
         table.put("timestamp", recommendationTimestamp);
         table.put("segment", stateService.stringValue(plan.get("segment")));
         table.put("segmentText", firstNonBlank(plan.get("segmentText"), plan.get("segment")));
+        table.put("intervalName", stateService.stringValue(plan.get("intervalName")));
+        table.put("controlInterval", stateService.stringValue(plan.get("intervalName")));
+        table.put("startStake", stateService.stringValue(plan.get("startStake")));
+        table.put("endStake", stateService.stringValue(plan.get("endStake")));
         table.put("direction", stateService.intValue(plan.get("direction"), DIRECTION_HAMI));
         table.put("directionText", firstNonBlank(plan.get("directionText"), directionToText(stateService.intValue(plan.get("direction"), DIRECTION_HAMI))));
-        table.put("controlLevel", controlLevel);
-        table.put("controlLevelText", levelToText(controlLevel));
-        table.put("currentControlLevel", controlLevel);
-        table.put("currentControlLevelText", levelToText(controlLevel));
+        table.put("controlLevel", recommendedLevel);
+        table.put("controlLevelText", levelToText(recommendedLevel));
+        table.put("currentControlLevel", recommendedLevel);
+        table.put("currentControlLevelText", levelToText(recommendedLevel));
         table.put("recommendedControlLevel", recommendedLevel);
         table.put("recommendedControlLevelText", levelToText(recommendedLevel));
         table.put("publishControlLevel", recommendedLevel);
@@ -1213,6 +1391,7 @@ public class WindControlExecutionService {
         table.put("publishEndTime", stateService.stringValue(plan.get("publishEndTime")));
         table.put("durationHours", stateService.intValue(plan.get("durationHours"), DEFAULT_PLAN_WINDOW_HOURS));
         table.put("status", stateService.stringValue(plan.get("status")));
+        table.put("executionApplied", Boolean.TRUE.equals(plan.get("executionApplied")));
         // 固定值：服务区/主线解封目标风力
         table.put("serviceAreaUnsealTargetWindLevel", "11级");
         table.put("mainlineUnsealTargetWindLevel", "9级");
@@ -1239,6 +1418,9 @@ public class WindControlExecutionService {
         table.put("vmsUpstreamExit", vmsUpstreamExit);
         table.put("vmsUpstreamTollgate", vmsUpstreamTollgate);
         table.put("vmsUpstreamServiceArea", vmsUpstreamServiceArea);
+        table.put("controlEventText", stateService.stringValue(plan.get("controlEventText")));
+        table.put("managementPlan", stateService.stringValue(plan.get("managementPlan")));
+        table.put("vmsContent", buildVmsContent(vmsInsideSegment, vmsUpstreamExit, vmsUpstreamTollgate, vmsUpstreamServiceArea));
 
         String upstreamExitControl = materializePlanText(stateService.stringValue(template.get("upstreamExitPlan")), riskSectionPlan);
         String upstreamTollgateControl = materializePlanText(stateService.stringValue(template.get("upstreamEntryPlan")), riskSectionPlan);
@@ -1279,13 +1461,6 @@ public class WindControlExecutionService {
         table.put("vmsUpstreamExitDeviceId", resolveFirstDeviceIdByType(vmsFacilityItems, VMS_KIND_UPSTREAM_EXIT, "出口"));
         table.put("vmsUpstreamTollgateDeviceId", resolveFirstDeviceIdByType(vmsFacilityItems, VMS_KIND_UPSTREAM_TOLLGATE, "入口", "收费站"));
         table.put("vmsUpstreamServiceAreaDeviceId", resolveFirstDeviceIdByType(vmsFacilityItems, VMS_KIND_UPSTREAM_SERVICE_AREA, "服务区"));
-        List<Map<String, Object>> allDevicePublishRows = buildAllDevicePublishInfoRows(
-                stateService.intValue(table.get("direction"), DIRECTION_HAMI),
-                stateService.stringValue(table.get("segmentText")),
-                riskSectionPlan,
-                vmsFacilityItems
-        );
-
         Map<String, Object> latestInterval = resolveIntervalContext(
                 stateService.stringValue(plan.get("segment")),
                 stateService.intValue(table.get("direction"), DIRECTION_HAMI),
@@ -1298,51 +1473,133 @@ public class WindControlExecutionService {
                 stateService.intValue(table.get("direction"), DIRECTION_HAMI)
         );
         plan.put("dispatch", dispatch);
+        stateService.getGeneratedPlans().put(stateService.stringValue(plan.get("planId")), plan);
         stateService.getPersistenceService().upsertPlan(plan);
-        persistCurrentDirectionPublishInfo(
-                stateService.intValue(table.get("direction"), DIRECTION_HAMI),
-                allDevicePublishRows
-        );
         stateService.persistSnapshot();
         table.put("contactStaff", stateService.stringValue(dispatch.get("contactStaff")));
         table.put("teamId", stateService.stringValue(dispatch.get("teamId")));
+        table.put("status", stateService.stringValue(plan.get("status")));
+        table.put("executionApplied", Boolean.TRUE.equals(plan.get("executionApplied")));
+        String eventId = stateService.stringValue(plan.get("eventId"));
+        if (!eventId.isBlank()) {
+            table.put("eventId", eventId);
+        }
+        String dispatchRecordId = stateService.stringValue(plan.get("dispatchRecordId"));
+        if (!dispatchRecordId.isBlank()) {
+            table.put("dispatchRecordId", dispatchRecordId);
+        }
         return table;
+    }
+
+    private Map<String, Object> buildMissingExecutionTable(String planId, Long timestamp) {
+        long responseTimestamp = timestamp != null && timestamp > 0
+                ? timestamp
+                : System.currentTimeMillis();
+        int defaultLevel = stateService.getDefaultControlLevel();
+        Map<String, Object> table = new LinkedHashMap<>();
+        table.put("planId", "");
+        table.put("requestedPlanId", planId);
+        table.put("timestamp", responseTimestamp);
+        table.put("segment", "");
+        table.put("segmentText", "");
+        table.put("intervalName", "");
+        table.put("controlInterval", "");
+        table.put("startStake", "");
+        table.put("endStake", "");
+        table.put("direction", DIRECTION_HAMI);
+        table.put("directionText", directionToText(DIRECTION_HAMI));
+        table.put("controlLevel", defaultLevel);
+        table.put("controlLevelText", levelToText(defaultLevel));
+        table.put("currentControlLevel", defaultLevel);
+        table.put("currentControlLevelText", levelToText(defaultLevel));
+        table.put("recommendedControlLevel", defaultLevel);
+        table.put("recommendedControlLevelText", levelToText(defaultLevel));
+        table.put("publishControlLevel", defaultLevel);
+        table.put("publishControlLevelText", levelToText(defaultLevel));
+        table.put("publishTime", "");
+        table.put("publishEndTime", "");
+        table.put("durationHours", DEFAULT_PLAN_WINDOW_HOURS);
+        table.put("status", "MISSING");
+        table.put("planMissing", true);
+        table.put("needRefresh", true);
+        table.put("message", "plan not found, please regenerate after restart");
+        table.put("serviceAreaUnsealTargetWindLevel", "11级");
+        table.put("mainlineUnsealTargetWindLevel", "9级");
+        table.put("vmsInsideSegment", "");
+        table.put("vmsUpstreamExit", "");
+        table.put("vmsUpstreamTollgate", "");
+        table.put("vmsUpstreamServiceArea", "");
+        table.put("controlEventText", "");
+        table.put("managementPlan", "");
+        table.put("vmsContent", buildVmsContent("", "", "", ""));
+        table.put("upstreamExitControl", "");
+        table.put("upstreamTollgateControl", "");
+        table.put("publishRows", buildEmptyExecutionPublishRows());
+        table.put("vmsPublishRows", filterVmsPublishRows(buildEmptyExecutionPublishRows()));
+        table.put("vmsInsideSegmentDeviceId", "");
+        table.put("vmsUpstreamExitDeviceId", "");
+        table.put("vmsUpstreamTollgateDeviceId", "");
+        table.put("vmsUpstreamServiceAreaDeviceId", "");
+        table.put("contactStaff", "");
+        table.put("teamId", "");
+        return table;
+    }
+
+    private List<Map<String, Object>> buildEmptyExecutionPublishRows() {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        rows.add(executionPublishRow("VMS", "管控区间内VMS", "", ""));
+        rows.add(executionPublishRow("VMS", "管控区间上游互通出口VMS", "", ""));
+        rows.add(executionPublishRow("VMS", "管控区间上游互通入口收费站VMS", "", ""));
+        rows.add(executionPublishRow("VMS", "服务区前VMS", "", ""));
+        rows.add(executionPublishRow("CONTROL", "管控区间上游互通出口", "", ""));
+        rows.add(executionPublishRow("CONTROL", "管控区间上游互通入口收费站", "", ""));
+        return rows;
     }
 
     /**
      * 大屏图二：单独查询设备发布信息（vmsPublishItems）。
      *
-     * 返回全量设备（26个）当前发布信息，直接读取已存储发布内容：
-     * 1) 读取 publish_facility 的 postInformation；
-     * 2) 非空时补齐“发布内容：”前缀；
-     * 3) 为空时返回空字符串，不做临时推导。
+     * 每次按两个方向所有未关闭方案现场重新生成，同一设备命中的多条方案内容以后执行的覆盖先执行的。
+     * 未被后续方案命中的设备保留之前方案生成的发布内容，不重置为欢迎语。
      */
     public List<Map<String, Object>> listExecutionVmsPublishItems(String planId) {
         autoCloseExpiredPublishedPlans();
-        Map<String, Object> current = stateService.getGeneratedPlans().get(planId);
-        if (current == null) {
-            throw new IllegalArgumentException("plan not found: " + planId);
+        Map<String, Object> plan = stateService.getGeneratedPlans().get(planId);
+        if (plan == null) {
+            return buildResetDevicePublishInfoRows();
         }
-        Set<String> seenDeviceIds = new HashSet<>();
+        List<Map<String, Object>> activePlans = stateService.getGeneratedPlans().values().stream()
+                .filter(item -> !"CLOSED".equalsIgnoreCase(stateService.stringValue(item.get("status"))))
+                .filter(item -> Boolean.TRUE.equals(item.get("executionApplied")))
+                .filter(item -> longValue(item.get("timestamp"), 0L) >= serviceStartTimestamp)
+                .sorted((a, b) -> Long.compare(
+                        longValue(a.get("timestamp"), 0L),
+                        longValue(b.get("timestamp"), 0L)
+                ))
+                .toList();
+        if (activePlans.isEmpty()) {
+            return buildResetDevicePublishInfoRows();
+        }
+        return buildMergedDevicePublishInfoRows(activePlans);
+    }
+
+    private List<Map<String, Object>> buildResetDevicePublishInfoRows() {
         List<Map<String, Object>> rows = new ArrayList<>();
         for (Map<String, Object> facility : getPublishFacilitiesForExecution()) {
             int facilityDirection = stateService.intValue(facility.get("direction"), -1);
             String deviceId = stateService.stringValue(facility.get("facilityId"));
-            if (deviceId.isBlank() || !seenDeviceIds.add(deviceId)) {
+            if (deviceId.isBlank()) {
                 continue;
             }
-            String postInformation = stateService.stringValue(facility.get("postInformation"));
-            if (postInformation.isBlank()) {
-                postInformation = buildFacilityWelcomeText(
-                        stateService.stringValue(facility.get("segment")),
-                        stateService.stringValue(facility.get("segment"))
-                );
-            }
+            String currentPublishInfo = buildFacilityWelcomeText(
+                    stateService.stringValue(facility.get("segment")),
+                    stateService.stringValue(facility.get("segment"))
+            );
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("deviceId", deviceId);
             row.put("direction", facilityDirection);
             row.put("directionText", directionToText(facilityDirection));
-            row.put("currentPublishInfo", postInformation.isBlank() ? "" : normalizePublishPrefix(postInformation));
+            row.put("currentPublishInfo", currentPublishInfo.isBlank() ? "" : normalizePublishPrefix(currentPublishInfo));
             rows.add(row);
         }
         return rows;
@@ -1351,26 +1608,52 @@ public class WindControlExecutionService {
     private void alignAutoGenerationLevelsWithWindRows(Map<String, Object> row,
                                                        Map<String, Object> interval,
                                                        List<WindData> latestRows,
-                                                       List<WindData> future2hRows) {
+                                                       List<WindData> future2hRows,
+                                                       Map<String, Map<String, Object>> future2hImpactByStakeAndDirection) {
         int direction = stateService.intValue(row.get("direction"), stateService.intValue(interval.get("direction"), DIRECTION_HAMI));
         String[] stakes = resolveSpatiotemporalStakes(row, interval);
         String startStake = firstNonBlank(stakes[0], row.get("startStake"), interval.get("startStake"));
         String endStake = firstNonBlank(stakes[1], row.get("endStake"), interval.get("endStake"));
+        String stakeRange = firstNonBlank(
+                resolveSpatiotemporalStakeRange(row, interval),
+                buildStakeRange(startStake, endStake)
+        );
         int currentWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, latestRows);
-        int future2hWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, future2hRows);
+        String future2hImpactStakeRange = firstNonBlank(
+                resolveFuture2hImpactStakeRange(row, interval),
+                normalizeFixedImpactStakeRange(stakeRange),
+                stakeRange
+        );
+        Map<String, Object> future2hImpact = future2hImpactByStakeAndDirection.get(
+                stakeDirectionKey(future2hImpactStakeRange, direction)
+        );
+        int future2hWindLevel = future2hImpact == null
+                ? resolveMaxWindLevelFromRows(direction, startStake, endStake, future2hRows)
+                : stateService.intValue(future2hImpact.get("maxWindLevel"), 0);
+        Integer cachedCurrentLevel = findCurrentControlLevelForInterval(
+                firstNonBlank(row.get("segmentText"), row.get("segment"), interval.get("segmentText"), interval.get("segment")),
+                interval
+        );
         if (currentWindLevel > 0) {
-            int controlLevel = resolveConfiguredControlLevel(currentWindLevel);
             row.put("realtimeWindLevel", currentWindLevel);
+        }
+        if (cachedCurrentLevel != null) {
+            row.put("controlLevel", cachedCurrentLevel);
+            row.put("controlLevelText", levelToText(cachedCurrentLevel));
+        } else if (currentWindLevel > 0 && !hasExecutedControlLevel(row)) {
+            int controlLevel = resolveConfiguredControlLevel(currentWindLevel);
             row.put("controlLevel", controlLevel);
             row.put("controlLevelText", levelToText(controlLevel));
         }
-        if (future2hWindLevel <= 0) {
+        Integer recommendedLevel = future2hImpact == null
+                ? (future2hWindLevel > 0 ? resolveConfiguredControlLevel(future2hWindLevel) : null)
+                : toNullableInt(future2hImpact.get("recommendedControlLevel"));
+        if (future2hWindLevel <= 0 || recommendedLevel == null) {
             row.put("forecastMaxWindLevel", null);
             row.put("recommendedControlLevel", null);
             row.put("recommendedControlLevelText", "");
             return;
         }
-        int recommendedLevel = resolveConfiguredControlLevel(future2hWindLevel);
         row.put("forecastMaxWindLevel", future2hWindLevel);
         row.put("recommendedControlLevel", recommendedLevel);
         row.put("recommendedControlLevelText", levelToText(recommendedLevel));
@@ -1387,8 +1670,21 @@ public class WindControlExecutionService {
         String[] stakes = resolveSpatiotemporalStakes(plan, Collections.emptyMap());
         String startStake = firstNonBlank(stakes[0], plan.get("startStake"));
         String endStake = firstNonBlank(stakes[1], plan.get("endStake"));
+        String stakeRange = firstNonBlank(resolveSpatiotemporalStakeRange(plan), buildStakeRange(startStake, endStake));
         int future2hWindLevel = 0;
         int currentWindLevel = 0;
+        Map<String, Map<String, Object>> future2hImpactByStakeAndDirection =
+                loadFuture2hImpactByStakeAndDirection(timestamp == null || timestamp <= 0
+                        ? longValue(plan.get("timestamp"), System.currentTimeMillis())
+                        : timestamp);
+        String future2hImpactStakeRange = firstNonBlank(
+                resolveFuture2hImpactStakeRange(plan, Collections.emptyMap()),
+                normalizeFixedImpactStakeRange(stakeRange),
+                stakeRange
+        );
+        Map<String, Object> future2hImpact = future2hImpactByStakeAndDirection.get(
+                stakeDirectionKey(future2hImpactStakeRange, direction)
+        );
         if (!startStake.isBlank() && !endStake.isBlank()) {
             long baseTimestamp = timestamp == null || timestamp <= 0
                     ? longValue(plan.get("timestamp"), System.currentTimeMillis())
@@ -1400,13 +1696,20 @@ public class WindControlExecutionService {
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(baseTimestamp + WINDOW_2H_MS), ZoneId.systemDefault())
             );
             currentWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, latestRows);
-            future2hWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, future2hRows);
+            future2hWindLevel = future2hImpact == null
+                    ? resolveMaxWindLevelFromRows(direction, startStake, endStake, future2hRows)
+                    : stateService.intValue(future2hImpact.get("maxWindLevel"), 0);
         }
         int fallbackWindLevel = Math.max(
                 stateService.intValue(plan.get("forecastMaxWindLevel"), 0),
                 stateService.intValue(plan.get("realtimeWindLevel"), 0)
         );
-        int recommendedLevel = future2hWindLevel > 0
+        Integer impactRecommendedLevel = future2hImpact == null
+                ? null
+                : toNullableInt(future2hImpact.get("recommendedControlLevel"));
+        int recommendedLevel = impactRecommendedLevel != null
+                ? impactRecommendedLevel
+                : future2hWindLevel > 0
                 ? resolveConfiguredControlLevel(future2hWindLevel)
                 : fallbackWindLevel > 0
                 ? resolveConfiguredControlLevel(fallbackWindLevel)
@@ -1423,28 +1726,94 @@ public class WindControlExecutionService {
     private void alignPlanLevelsWithWindRows(Map<String, Object> plan,
                                              Map<String, Object> interval,
                                              List<WindData> latestRows,
-                                             List<WindData> future2hRows) {
+                                             List<WindData> future2hRows,
+                                             Map<String, Map<String, Object>> future2hImpactByStakeAndDirection) {
         if (plan == null || plan.isEmpty()) {
             return;
         }
         int direction = stateService.intValue(plan.get("direction"), stateService.intValue(interval.get("direction"), DIRECTION_HAMI));
+        boolean executed = hasExecutedControlLevel(plan);
         String[] stakes = resolveSpatiotemporalStakes(plan, interval);
         String startStake = firstNonBlank(stakes[0], plan.get("startStake"), interval.get("startStake"));
         String endStake = firstNonBlank(stakes[1], plan.get("endStake"), interval.get("endStake"));
+        String stakeRange = firstNonBlank(
+                resolveSpatiotemporalStakeRange(plan, interval),
+                buildStakeRange(startStake, endStake)
+        );
         int currentWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, latestRows);
-        int future2hWindLevel = resolveMaxWindLevelFromRows(direction, startStake, endStake, future2hRows);
+        String future2hImpactStakeRange = firstNonBlank(
+                resolveFuture2hImpactStakeRange(plan, interval),
+                normalizeFixedImpactStakeRange(stakeRange),
+                stakeRange
+        );
+        Map<String, Object> future2hImpact = future2hImpactByStakeAndDirection.get(
+                stakeDirectionKey(future2hImpactStakeRange, direction)
+        );
+        int future2hWindLevel = future2hImpact == null
+                ? resolveMaxWindLevelFromRows(direction, startStake, endStake, future2hRows)
+                : stateService.intValue(future2hImpact.get("maxWindLevel"), 0);
         if (currentWindLevel <= 0 && future2hWindLevel <= 0) {
             return;
         }
-        int currentLevel = currentWindLevel > 0
+        Integer cachedCurrentLevel = findCurrentControlLevelForInterval(
+                firstNonBlank(plan.get("segmentText"), plan.get("segment"), interval.get("segmentText"), interval.get("segment")),
+                interval
+        );
+        int currentLevel = cachedCurrentLevel != null
+                ? cachedCurrentLevel
+                : executed
+                ? stateService.intValue(plan.get("controlLevel"),
+                stateService.intValue(plan.get("currentControlLevel"), stateService.getDefaultControlLevel()))
+                : currentWindLevel > 0
                 ? resolveConfiguredControlLevel(currentWindLevel)
                 : stateService.intValue(plan.get("controlLevel"),
                 stateService.intValue(plan.get("currentControlLevel"), stateService.getDefaultControlLevel()));
-        int recommendedLevel = future2hWindLevel > 0
+        Integer impactRecommendedLevel = future2hImpact == null
+                ? null
+                : toNullableInt(future2hImpact.get("recommendedControlLevel"));
+        int recommendedLevel = impactRecommendedLevel != null
+                ? impactRecommendedLevel
+                : future2hWindLevel > 0
                 ? resolveConfiguredControlLevel(future2hWindLevel)
                 : stateService.intValue(plan.get("recommendedControlLevel"), currentLevel);
         Map<String, Object> template = resolveTemplateByRecommendedLevel(plan, recommendedLevel);
         applyRecommendedTemplateToPlan(plan, currentLevel, recommendedLevel, template, future2hWindLevel);
+    }
+
+    private Map<String, Map<String, Object>> loadFuture2hImpactByStakeAndDirection(long timestamp) {
+        Map<String, Map<String, Object>> records = new LinkedHashMap<>();
+        Map<String, Object> result = windImpactService.evaluateSpatiotemporalImpactFuture2h(timestamp);
+        Object rawRecords = result.get("records");
+        if (!(rawRecords instanceof List<?> list)) {
+            return records;
+        }
+        for (Object item : list) {
+            if (!(item instanceof Map<?, ?> rawMap)) {
+                continue;
+            }
+            Map<String, Object> record = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : rawMap.entrySet()) {
+                record.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+            String stakeRange = stateService.stringValue(record.get("stakeRange"));
+            int direction = stateService.intValue(record.get("direction"), 0);
+            if (stakeRange.isBlank() || direction == 0) {
+                continue;
+            }
+            records.put(stakeDirectionKey(stakeRange, direction), record);
+        }
+        return records;
+    }
+
+    private String stakeDirectionKey(String stakeRange, int direction) {
+        return stateService.stringValue(stakeRange) + "#" + direction;
+    }
+
+    private String buildStakeRange(String startStake, String endStake) {
+        if (startStake == null || endStake == null || startStake.isBlank() || endStake.isBlank()) {
+            return "";
+        }
+        return startStake + "-" + endStake;
     }
 
     private Map<String, Object> resolveTemplateByRecommendedLevel(Map<String, Object> plan, int recommendedLevel) {
@@ -1460,18 +1829,24 @@ public class WindControlExecutionService {
     }
 
     private String resolveSpatiotemporalStakeRange(Map<String, Object> plan, Map<String, Object> interval) {
-        String intervalName = firstNonBlank(
+        String currentIntervalRange = resolveCurrentIntervalStakeRange(plan, interval);
+        if (!currentIntervalRange.isBlank()) {
+            return currentIntervalRange;
+        }
+
+        int direction = stateService.intValue(
+                firstNonBlank(
+                        plan == null ? null : plan.get("direction"),
+                        interval == null ? null : interval.get("direction")
+                ),
+                DIRECTION_HAMI
+        );
+        String intervalRange = resolveFixedImpactStakeRangeByIntervalName(firstNonBlank(
                 plan == null ? null : plan.get("intervalName"),
                 interval == null ? null : interval.get("intervalName")
-        ).trim();
-        if ("1-1".equals(intervalName) || "2-1".equals(intervalName)) {
-            return "K3197-K3204";
-        }
-        if ("1-2".equals(intervalName) || "2-2".equals(intervalName)) {
-            return "K3192-K3197";
-        }
-        if ("1-3".equals(intervalName) || "2-3".equals(intervalName)) {
-            return "K3178-K3192";
+        ));
+        if (!intervalRange.isBlank()) {
+            return intervalRange;
         }
 
         String segmentText = normalizeSegmentLookupKey(firstNonBlank(
@@ -1480,20 +1855,176 @@ public class WindControlExecutionService {
                 interval == null ? null : interval.get("segmentText"),
                 interval == null ? null : interval.get("segment")
         ));
-        if (segmentText.contains("一碗泉服务区-红山口服务区")
-                || segmentText.contains("红山口互通-沙尔湖服务区")) {
-            return "K3197-K3204";
-        }
-        if (segmentText.contains("沙尔湖服务区-红山口互通")
-                || segmentText.contains("红山口互通-红山口服务区")
-                || segmentText.contains("红山口服务区-红山口互通")) {
-            return "K3192-K3197";
-        }
-        if (segmentText.contains("七克台互通-沙尔湖服务区")
-                || segmentText.contains("红山口服务区-一碗泉服务区")) {
-            return "K3178-K3192";
+        String mappedRange = resolveFixedStakeRangeBySegmentText(segmentText, direction);
+        if (!mappedRange.isBlank()) {
+            return mappedRange;
         }
         return "";
+    }
+
+    private String resolveFuture2hImpactStakeRange(Map<String, Object> plan, Map<String, Object> interval) {
+        int direction = stateService.intValue(
+                firstNonBlank(
+                        plan == null ? null : plan.get("direction"),
+                        interval == null ? null : interval.get("direction")
+                ),
+                DIRECTION_HAMI
+        );
+        String intervalRange = resolveFixedImpactStakeRangeByIntervalName(firstNonBlank(
+                plan == null ? null : plan.get("intervalName"),
+                interval == null ? null : interval.get("intervalName")
+        ));
+        if (!intervalRange.isBlank()) {
+            return intervalRange;
+        }
+
+        String segmentText = firstNonBlank(
+                plan == null ? null : plan.get("segmentText"),
+                plan == null ? null : plan.get("segment"),
+                interval == null ? null : interval.get("segmentText"),
+                interval == null ? null : interval.get("segment")
+        );
+        String mappedByDirection = resolveFixedStakeRangeBySegmentText(segmentText, direction);
+        if (!mappedByDirection.isBlank()) {
+            return mappedByDirection;
+        }
+        String mappedRange = mapSegmentTextToStakeRange(segmentText);
+        if (!mappedRange.isBlank()) {
+            return mappedRange;
+        }
+
+        String planRange = normalizeFixedImpactStakeRange(buildStakeRange(
+                plan == null ? "" : stateService.stringValue(plan.get("startStake")),
+                plan == null ? "" : stateService.stringValue(plan.get("endStake"))
+        ));
+        if (!planRange.isBlank()) {
+            return planRange;
+        }
+        String intervalMappedRange = normalizeFixedImpactStakeRange(buildStakeRange(
+                interval == null ? "" : stateService.stringValue(interval.get("startStake")),
+                interval == null ? "" : stateService.stringValue(interval.get("endStake"))
+        ));
+        if (!intervalMappedRange.isBlank()) {
+            return intervalMappedRange;
+        }
+        return normalizeFixedImpactStakeRange(resolveSpatiotemporalStakeRange(plan, interval));
+    }
+
+    private String resolveFixedImpactStakeRangeByIntervalName(Object intervalNameObj) {
+        String intervalName = stateService.stringValue(intervalNameObj).trim();
+        if ("1-1".equals(intervalName) || "2-1".equals(intervalName)) {
+            return "K3178-K3192";
+        }
+        if ("1-2".equals(intervalName) || "2-2".equals(intervalName)) {
+            return "K3192-K3197";
+        }
+        if ("1-3".equals(intervalName) || "2-3".equals(intervalName)) {
+            return "K3197-K3204";
+        }
+        return "";
+    }
+
+    private String normalizeFixedImpactStakeRange(String stakeRange) {
+        double[] range = parseStakeRange(stakeRange);
+        if (range == null) {
+            return "";
+        }
+        if (isSameStakeRange(range, 3178D, 3192D)) {
+            return "K3178-K3192";
+        }
+        if (isSameStakeRange(range, 3192D, 3197D)) {
+            return "K3192-K3197";
+        }
+        if (isSameStakeRange(range, 3197D, 3204D)) {
+            return "K3197-K3204";
+        }
+        return "";
+    }
+
+    private boolean isSameStakeRange(double[] range, double start, double end) {
+        return range != null
+                && range.length >= 2
+                && Math.abs(range[0] - start) < 0.001D
+                && Math.abs(range[1] - end) < 0.001D;
+    }
+
+    private String resolveFixedStakeRangeBySegmentText(String segmentText, int direction) {
+        if (segmentText == null || segmentText.isBlank()) {
+            return "";
+        }
+        String normalized = normalizeSegmentLookupKey(segmentText);
+        if (direction == DIRECTION_HAMI) {
+            if (normalized.contains("红山口服务区-一碗泉服务区")) {
+                return "K3178-K3192";
+            }
+            if (normalized.contains("红山口互通-红山口服务区")) {
+                return "K3192-K3197";
+            }
+            if (normalized.contains("沙尔湖服务区-红山口互通")) {
+                return "K3197-K3204";
+            }
+        }
+        if (direction == DIRECTION_TURPAN) {
+            if (normalized.contains("一碗泉服务区-红山口服务区")) {
+                return "K3178-K3192";
+            }
+            if (normalized.contains("红山口服务区-红山口互通")) {
+                return "K3192-K3197";
+            }
+            if (normalized.contains("红山口互通-沙尔湖服务区")) {
+                return "K3197-K3204";
+            }
+        }
+        return "";
+    }
+
+    private String resolveCurrentIntervalStakeRange(Map<String, Object> plan, Map<String, Object> interval) {
+        String intervalStart = interval == null ? "" : stateService.stringValue(interval.get("startStake"));
+        String intervalEnd = interval == null ? "" : stateService.stringValue(interval.get("endStake"));
+        String intervalRange = buildStakeRange(intervalStart, intervalEnd);
+        if (!intervalRange.isBlank()) {
+            return intervalRange;
+        }
+
+        int direction = stateService.intValue(
+                firstNonBlank(
+                        plan == null ? null : plan.get("direction"),
+                        interval == null ? null : interval.get("direction")
+                ),
+                DIRECTION_HAMI
+        );
+        for (Object candidate : Arrays.asList(
+                plan == null ? null : plan.get("intervalName"),
+                plan == null ? null : plan.get("segmentText"),
+                plan == null ? null : plan.get("segment"),
+                interval == null ? null : interval.get("intervalName"),
+                interval == null ? null : interval.get("segmentText"),
+                interval == null ? null : interval.get("segment")
+        )) {
+            String key = stateService.stringValue(candidate);
+            if (key.isBlank()) {
+                continue;
+            }
+            Map<String, Object> matched = stateService.getDispatchPlanLibrary().get(key);
+            if (matched == null) {
+                continue;
+            }
+            if (direction != stateService.intValue(matched.get("direction"), direction)) {
+                continue;
+            }
+            String matchedRange = buildStakeRange(
+                    stateService.stringValue(matched.get("startStake")),
+                    stateService.stringValue(matched.get("endStake"))
+            );
+            if (!matchedRange.isBlank()) {
+                return matchedRange;
+            }
+        }
+
+        return buildStakeRange(
+                plan == null ? "" : stateService.stringValue(plan.get("startStake")),
+                plan == null ? "" : stateService.stringValue(plan.get("endStake"))
+        );
     }
 
     private String[] resolveSpatiotemporalStakes(Map<String, Object> plan, Map<String, Object> interval) {
@@ -1521,8 +2052,9 @@ public class WindControlExecutionService {
         plan.put("recommendedControlLevelText", levelToText(recommendedLevel));
         plan.put("currentControlLevel", currentLevel);
         plan.put("currentControlLevelText", levelToText(currentLevel));
-        plan.put("controlLevel", currentLevel);
-        plan.put("controlLevelText", levelToText(currentLevel));
+        int effectiveControlLevel = currentLevel;
+        plan.put("controlLevel", effectiveControlLevel);
+        plan.put("controlLevelText", levelToText(effectiveControlLevel));
         if (future2hWindLevel > 0) {
             plan.put("forecastMaxWindLevel", future2hWindLevel);
         }
@@ -1563,23 +2095,23 @@ public class WindControlExecutionService {
         String serviceAreaDeviceIds = resolveFirstDeviceIdByType(vmsFacilityItems, VMS_KIND_UPSTREAM_SERVICE_AREA, "服务区");
         List<Map<String, Object>> rows = new ArrayList<>();
         rows.add(executionPublishRow("VMS", "管控区间内VMS", insideDeviceIds, vmsInsideSegment,
-                resolveFixedVmsContent(controlLevel, VMS_KIND_INSIDE_SEGMENT)));
+                resolveFixedVmsContent(controlLevel, VMS_KIND_INSIDE_SEGMENT, vmsInsideSegment)));
         rows.add(executionPublishRow("VMS", "管控区间上游互通出口VMS", exitDeviceIds, vmsUpstreamExit,
-                resolveFixedVmsContent(controlLevel, VMS_KIND_UPSTREAM_EXIT)));
+                resolveFixedVmsContent(controlLevel, VMS_KIND_UPSTREAM_EXIT, vmsUpstreamExit)));
         rows.add(executionPublishRow("VMS", "管控区间上游互通入口收费站VMS", tollgateDeviceIds, vmsUpstreamTollgate,
-                resolveFixedVmsContent(controlLevel, VMS_KIND_UPSTREAM_TOLLGATE)));
+                resolveFixedVmsContent(controlLevel, VMS_KIND_UPSTREAM_TOLLGATE, vmsUpstreamTollgate)));
         rows.add(executionPublishRow("VMS", "服务区前VMS", serviceAreaDeviceIds, vmsUpstreamServiceArea,
-                resolveFixedVmsContent(controlLevel, VMS_KIND_UPSTREAM_SERVICE_AREA)));
+                resolveFixedVmsContent(controlLevel, VMS_KIND_UPSTREAM_SERVICE_AREA, vmsUpstreamServiceArea)));
         rows.add(executionPublishRow("CONTROL", "管控区间上游互通出口", "", upstreamExitControl));
         rows.add(executionPublishRow("CONTROL", "管控区间上游互通入口收费站", "", upstreamTollgateControl));
         return rows;
     }
 
     private Map<String, Object> executionPublishRow(String itemType, String target, String deviceId, String content) {
-        return executionPublishRow(itemType, target, deviceId, content, "");
+        return executionPublishRow(itemType, target, deviceId, content, new FixedVmsContent("", ""));
     }
 
-    private Map<String, Object> executionPublishRow(String itemType, String target, String deviceId, String content, String fixedContent) {
+    private Map<String, Object> executionPublishRow(String itemType, String target, String deviceId, String content, FixedVmsContent fixedContent) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("itemType", itemType);
         row.put("target", target);
@@ -1591,16 +2123,14 @@ public class WindControlExecutionService {
         return row;
     }
 
-    private void putFixedVmsContent(Map<String, Object> row, String fixedContent) {
-        String text = fixedContent == null ? "" : fixedContent.trim();
-        if (text.isBlank()) {
+    private void putFixedVmsContent(Map<String, Object> row, FixedVmsContent fixedContent) {
+        if (fixedContent == null) {
             row.put("fixedMainContent", "");
             row.put("fixedTipContent", "");
             return;
         }
-        String[] lines = text.split("\\R", 2);
-        row.put("fixedMainContent", lines[0].trim());
-        row.put("fixedTipContent", lines.length > 1 ? lines[1].trim() : "");
+        row.put("fixedMainContent", fixedContent.mainContent());
+        row.put("fixedTipContent", fixedContent.tipContent());
     }
 
     private List<Map<String, Object>> filterVmsPublishRows(List<Map<String, Object>> publishRows) {
@@ -1652,6 +2182,46 @@ public class WindControlExecutionService {
             row.put("direction", facilityDirection);
             row.put("directionText", directionToText(facilityDirection));
             row.put("currentPublishInfo", publishMessage.isBlank() ? "" : normalizePublishPrefix(publishMessage));
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    private List<Map<String, Object>> buildMergedDevicePublishInfoRows(List<Map<String, Object>> plans) {
+        Map<String, String> messagesByDeviceId = new LinkedHashMap<>();
+        for (Map<String, Object> item : plans == null ? List.<Map<String, Object>>of() : plans) {
+            Map<String, Object> template = safeMap(item.get("template"));
+            String riskSectionPlan = stateService.stringValue(template.get("riskSectionPlan"));
+            List<Map<String, Object>> selectedPublishItems = normalizeVmsPublishItems(item.get("vmsPublishItems"));
+            for (Map<String, Object> publishItem : selectedPublishItems) {
+                String deviceId = firstNonBlank(publishItem.get("deviceId"), publishItem.get("facilityId"));
+                String message = stateService.stringValue(publishItem.get("publishMessage"));
+                if (deviceId.isBlank() || message.isBlank()) {
+                    continue;
+                }
+                messagesByDeviceId.put(deviceId, normalizePublishPrefix(materializePlanText(message, riskSectionPlan)));
+            }
+        }
+
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Map<String, Object> facility : getPublishFacilitiesForExecution()) {
+            int facilityDirection = stateService.intValue(facility.get("direction"), -1);
+            String deviceId = stateService.stringValue(facility.get("facilityId"));
+            if (deviceId.isBlank()) {
+                continue;
+            }
+            String currentPublishInfo = messagesByDeviceId.get(deviceId);
+            if (currentPublishInfo == null || currentPublishInfo.isBlank()) {
+                currentPublishInfo = buildFacilityWelcomeText(
+                        stateService.stringValue(facility.get("segment")),
+                        firstNonBlank(facility.get("segment"), facility.get("segment"))
+                );
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("deviceId", deviceId);
+            row.put("direction", facilityDirection);
+            row.put("directionText", directionToText(facilityDirection));
+            row.put("currentPublishInfo", currentPublishInfo.isBlank() ? "" : normalizePublishPrefix(currentPublishInfo));
             rows.add(row);
         }
         return rows;
@@ -1884,17 +2454,19 @@ public class WindControlExecutionService {
         if (normalized.isBlank()) {
             return "";
         }
+        if (normalized.contains("红山口服务区-一碗泉服务区")
+                || normalized.contains("一碗泉服务区-红山口服务区")) {
+            return "K3178-K3192";
+        }
+        if (normalized.contains("红山口互通-红山口服务区")
+                || normalized.contains("红山口服务区-红山口互通")) {
+            return "K3192-K3197";
+        }
         if (normalized.contains("沙尔湖服务区-红山口互通")) {
-            return "K3204-K3203";
+            return "K3197-K3204";
         }
         if (normalized.contains("红山口互通-沙尔湖服务区")) {
-            return "K3203-K3204";
-        }
-        if (normalized.contains("红山口互通-红山口服务区")) {
-            return "K3192-K3178";
-        }
-        if (normalized.contains("红山口服务区-红山口互通")) {
-            return "K3178-K3192";
+            return "K3197-K3204";
         }
         return "";
     }
@@ -2010,7 +2582,17 @@ public class WindControlExecutionService {
         };
     }
 
-    private String resolveFixedVmsContent(int controlLevel, String vmsKind) {
+    private FixedVmsContent resolveFixedVmsContent(int controlLevel, String vmsKind, String content) {
+        String fallbackContent = resolveFallbackFixedVmsContent(controlLevel, vmsKind);
+        String templateTipContent = resolveFixedVmsTemplateText(controlLevel, vmsKind, content);
+        FixedVmsContent fallback = splitFixedVmsContent(fallbackContent);
+        return new FixedVmsContent(
+                fallback.mainContent(),
+                templateTipContent.isBlank() ? fallback.tipContent() : templateTipContent
+        );
+    }
+
+    private String resolveFallbackFixedVmsContent(int controlLevel, String vmsKind) {
         return switch (controlLevel) {
             case 1 -> switch (vmsKind) {
                 case VMS_KIND_UPSTREAM_TOLLGATE -> "主线高速大风红色预警，车辆禁止驶入。\n入口提示：小型车禁行，大型车禁行。";
@@ -2041,6 +2623,230 @@ public class WindControlExecutionService {
                 default -> "";
             };
             case 5 -> GREEN_ALERT_FIXED_VMS_CONTENT;
+            default -> "";
+        };
+    }
+
+    private FixedVmsContent splitFixedVmsContent(String text) {
+        String value = text == null ? "" : text.trim();
+        if (value.isBlank()) {
+            return new FixedVmsContent("", "");
+        }
+        String[] lines = value.split("\\R", 2);
+        return new FixedVmsContent(lines[0].trim(), lines.length > 1 ? lines[1].trim() : "");
+    }
+
+    private String resolveFixedVmsTemplateText(int controlLevel, String vmsKind, String content) {
+        String controlLevelText = levelToText(controlLevel);
+        String publishPosition = resolveTemplatePublishPosition(vmsKind);
+        if (controlLevelText.isBlank() || publishPosition.isBlank()) {
+            return "";
+        }
+        VmsContentTemplateStatic row = vmsContentTemplateStaticService.matchTemplate(controlLevelText, publishPosition, "ALL");
+        if (row == null) {
+            row = vmsContentTemplateStaticService.matchTemplate(resolveControlLevelName(controlLevel), publishPosition, "ALL");
+        }
+        if (row == null) {
+            row = matchTemplateByLevelCandidates(controlLevel, publishPosition);
+        }
+        if (row == null || row.getTemplateText() == null || row.getTemplateText().isBlank()) {
+            return "";
+        }
+        return renderFixedVmsTemplateText(row.getTemplateText(), controlLevel, content);
+    }
+
+    private String renderFixedVmsTemplateText(String templateText, int controlLevel, String content) {
+        String text = templateText == null ? "" : templateText;
+        String passengerSpeed = resolvePlanSpeedLimit(controlLevel, "passengerSpeedLimit", defaultPassengerLimitByControlLevel(controlLevel));
+        String freightSpeed = resolvePlanSpeedLimit(controlLevel, "freightSpeedLimit", defaultFreightLimitByControlLevel(controlLevel));
+        String rendered = text.replace("{LIGHT_SPEED}", passengerSpeed)
+                .replace("${LIGHT_SPEED}", passengerSpeed)
+                .replace("{HEAVY_SPEED}", freightSpeed)
+                .replace("${HEAVY_SPEED}", freightSpeed);
+        rendered = alignVehicleControlByContent(rendered, content, "小型车", "小车");
+        rendered = alignVehicleControlByContent(rendered, content, "大型车", "大车");
+        rendered = removeReservationWhenAllVehiclesForbidden(rendered, content);
+        return rendered.trim();
+    }
+
+    private String removeReservationWhenAllVehiclesForbidden(String text, String content) {
+        String passengerControl = resolveVehicleControlFromContent(content, "小型车", "小车");
+        String freightControl = resolveVehicleControlFromContent(content, "大型车", "大车");
+        if (!"禁行".equals(passengerControl) || !"禁行".equals(freightControl)) {
+            return text;
+        }
+        return text.replace("车辆预约，", "")
+                .replace("车辆预约,", "")
+                .replace("，车辆预约", "")
+                .replace(",车辆预约", "")
+                .replace("车辆预约", "");
+    }
+
+    private String alignVehicleControlByContent(String templateText, String content, String standardName, String alias) {
+        String control = resolveVehicleControlFromContent(content, standardName, alias);
+        if (control.isBlank()) {
+            return templateText;
+        }
+        String result = replaceVehicleControlInText(templateText, standardName, control);
+        if (alias != null && !alias.isBlank()) {
+            result = replaceVehicleControlInText(result, alias, control);
+        }
+        return result;
+    }
+
+    private String resolveVehicleControlFromContent(String content, String standardName, String alias) {
+        String text = content == null ? "" : content.trim();
+        if (text.isBlank()) {
+            return "";
+        }
+        if (text.contains("所有车辆禁行")) {
+            return "禁行";
+        }
+        if (text.contains("所有车辆避险")) {
+            return "避险";
+        }
+        String speed = extractVehicleSpeed(text, standardName);
+        if (speed.isBlank() && alias != null && !alias.isBlank()) {
+            speed = extractVehicleSpeed(text, alias);
+        }
+        if (!speed.isBlank()) {
+            return "限速" + speed;
+        }
+        if (text.contains(standardName + "禁行")
+                || (alias != null && !alias.isBlank() && text.contains(alias + "禁行"))) {
+            return "禁行";
+        }
+        if (text.contains(standardName + "避险")
+                || (alias != null && !alias.isBlank() && text.contains(alias + "避险"))) {
+            return "避险";
+        }
+        return "";
+    }
+
+    private String extractVehicleSpeed(String text, String vehicleName) {
+        if (text == null || vehicleName == null || vehicleName.isBlank()) {
+            return "";
+        }
+        Pattern pattern = Pattern.compile(Pattern.quote(vehicleName) + "\\s*限速\\s*(\\d+)(?:\\s*km/h)?", Pattern.CASE_INSENSITIVE);
+        Matcher matcher = pattern.matcher(text);
+        return matcher.find() ? matcher.group(1) : "";
+    }
+
+    private String replaceVehicleControlInText(String text, String vehicleName, String control) {
+        if (text == null || vehicleName == null || vehicleName.isBlank() || control == null || control.isBlank()) {
+            return text == null ? "" : text;
+        }
+        Pattern pattern = Pattern.compile("(" + Pattern.quote(vehicleName) + "\\s*)(?:限速\\s*\\d+|禁行|避险)");
+        Matcher matcher = pattern.matcher(text);
+        StringBuffer buffer = new StringBuffer();
+        while (matcher.find()) {
+            matcher.appendReplacement(buffer, Matcher.quoteReplacement(matcher.group(1) + control));
+        }
+        matcher.appendTail(buffer);
+        return buffer.toString();
+    }
+
+    private String resolvePlanSpeedLimit(int controlLevel, String field, int defaultValue) {
+        Map<String, Object> plan = stateService.getControlPlanLibrary().get(controlLevel);
+        Integer value = positiveOrZeroInt(plan == null ? null : plan.get(field));
+        if (value != null) {
+            return String.valueOf(value);
+        }
+        for (Map<String, Object> threshold : stateService.getSpeedThresholdByWindLevel().values()) {
+            if (threshold == null) {
+                continue;
+            }
+            int thresholdLevel = stateService.intValue(threshold.get("controlLevel"), -1);
+            if (thresholdLevel != controlLevel) {
+                continue;
+            }
+            value = positiveOrZeroInt(threshold.get(field));
+            if (value != null) {
+                return String.valueOf(value);
+            }
+        }
+        return String.valueOf(defaultValue);
+    }
+
+    private Integer positiveOrZeroInt(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number n) {
+            return n.intValue() >= 0 ? n.intValue() : null;
+        }
+        String text = String.valueOf(value).trim();
+        if (text.isBlank()) {
+            return null;
+        }
+        try {
+            int parsed = Integer.parseInt(text);
+            return parsed >= 0 ? parsed : null;
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private int defaultPassengerLimitByControlLevel(int controlLevel) {
+        return switch (controlLevel) {
+            case 1 -> 0;
+            case 2 -> 60;
+            case 3 -> 60;
+            case 4 -> 80;
+            default -> 120;
+        };
+    }
+
+    private int defaultFreightLimitByControlLevel(int controlLevel) {
+        return switch (controlLevel) {
+            case 1 -> 0;
+            case 2 -> 0;
+            case 3 -> 40;
+            case 4 -> 60;
+            default -> 80;
+        };
+    }
+
+    private VmsContentTemplateStatic matchTemplateByLevelCandidates(int controlLevel, String publishPosition) {
+        for (String levelName : resolveTemplateLevelCandidates(controlLevel)) {
+            for (VmsContentTemplateStatic row : vmsContentTemplateStaticService.listByControlLevel(levelName, 1)) {
+                if (publishPosition.equalsIgnoreCase(row.getPublishPosition())
+                        && "ALL".equalsIgnoreCase(row.getVehicleType())) {
+                    return row;
+                }
+            }
+        }
+        return null;
+    }
+
+    private List<String> resolveTemplateLevelCandidates(int controlLevel) {
+        return switch (controlLevel) {
+            case 1 -> List.of("红色警戒", "一级管控", "一级");
+            case 2 -> List.of("橙色警戒", "二级管控", "二级");
+            case 3 -> List.of("黄色警戒", "三级管控", "三级");
+            case 4 -> List.of("蓝色警戒", "四级管控", "四级");
+            case 5 -> List.of("绿色警戒", "正常通行", "五级管控", "五级");
+            default -> List.of();
+        };
+    }
+
+    private String resolveTemplatePublishPosition(String vmsKind) {
+        return switch (vmsKind) {
+            case VMS_KIND_INSIDE_SEGMENT -> "IN_SECTION";
+            case VMS_KIND_UPSTREAM_EXIT -> "UPSTREAM_EXIT";
+            case VMS_KIND_UPSTREAM_TOLLGATE -> "UPSTREAM_ENTRY_TOLL";
+            case VMS_KIND_UPSTREAM_SERVICE_AREA -> "SERVICE_AREA";
+            default -> "";
+        };
+    }
+
+    private String resolveControlLevelName(int controlLevel) {
+        return switch (controlLevel) {
+            case 1 -> "一级管控";
+            case 2 -> "二级管控";
+            case 3 -> "三级管控";
+            case 4 -> "四级管控";
+            case 5 -> "五级管控";
             default -> "";
         };
     }
@@ -2100,6 +2906,27 @@ public class WindControlExecutionService {
             return false;
         }
         return null;
+    }
+
+    /**
+     * 解析可空 int 值。
+     */
+    private Integer toNullableInt(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number n) {
+            return n.intValue();
+        }
+        String text = String.valueOf(value).trim();
+        if (text.isEmpty()) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(text);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     /**
@@ -2543,14 +3370,23 @@ public class WindControlExecutionService {
 
     private String resolveExecutionSendStakeRange(String intervalName, String startStake, String endStake) {
         String interval = stateService.stringValue(intervalName);
-        if ("1-1".equals(interval) || "2-1".equals(interval)) {
+        if ("1-1".equals(interval)) {
+            return "K3192-K3178";
+        }
+        if ("1-2".equals(interval)) {
+            return "K3197-K3193";
+        }
+        if ("1-3".equals(interval)) {
             return "K3203-K3198";
         }
-        if ("1-2".equals(interval) || "2-2".equals(interval)) {
-            return "K3197-K3194";
+        if ("2-1".equals(interval)) {
+            return "K3191-K3178";
         }
-        if ("1-3".equals(interval) || "2-3".equals(interval)) {
-            return "K3193-K3178";
+        if ("2-2".equals(interval)) {
+            return "K3196-K3192";
+        }
+        if ("2-3".equals(interval)) {
+            return "K3203-K3197";
         }
         String resolvedStart = firstNonBlank(startStake, extractStake(resolveSpatiotemporalStakeRange(Map.of("intervalName", interval)), true));
         String resolvedEnd = firstNonBlank(endStake, extractStake(resolveSpatiotemporalStakeRange(Map.of("intervalName", interval)), false));
@@ -3013,6 +3849,7 @@ public class WindControlExecutionService {
             plan.put("eventId", eventId);
         }
         long startTs = longValue(plan.get("timestamp"), closeTs);
+        long conclusionTs = startTs + WINDOW_2H_MS;
         int controlLevel = stateService.intValue(plan.get("recommendedControlLevel"), stateService.getDefaultControlLevel());
         int maxWindLevel = Math.max(
                 stateService.intValue(plan.get("realtimeWindLevel"), 0),
@@ -3029,8 +3866,9 @@ public class WindControlExecutionService {
         String controlPerimeter = firstNonBlank(plan.get("segmentText"), plan.get("segment"));
         String onDutyPersonnel = resolveOnDutyPersonnel(plan);
         report.put("eventId", eventId);
+        report.put("planId", stateService.stringValue(plan.get("planId")));
         report.put("startTime", dtf.format(Instant.ofEpochMilli(startTs)));
-        report.put("endTime", dtf.format(Instant.ofEpochMilli(closeTs)));
+        report.put("endTime", dtf.format(Instant.ofEpochMilli(conclusionTs)));
         report.put("segment", stateService.stringValue(plan.get("segment")));
         report.put("startStake", stateService.stringValue(plan.get("startStake")));
         report.put("endStake", stateService.stringValue(plan.get("endStake")));
@@ -3040,14 +3878,54 @@ public class WindControlExecutionService {
         report.put("windSpeedScale", formatWindSpeedScale(maxWindLevel));
         report.put("managementPlan", managementPlan);
         report.put("timeOfOccurrence", dtf.format(Instant.ofEpochMilli(startTs)));
-        report.put("conclusionTime", dtf.format(Instant.ofEpochMilli(closeTs)));
+        report.put("conclusionTime", dtf.format(Instant.ofEpochMilli(conclusionTs)));
         report.put("controlPerimeter", controlPerimeter);
         report.put("onDutyPersonnel", onDutyPersonnel);
         report.put("maxWindLevel", maxWindLevel);
         report.put("controlLevel", controlLevel);
-        report.put("durationMin", Math.max(0, (closeTs - startTs) / 60_000L));
+        report.put("durationMin", (int) (WINDOW_2H_MS / 60_000L));
         report.put("status", "FINISHED");
         return report;
+    }
+
+    private Map<String, Object> buildRunningEventRecord(Map<String, Object> plan, long publishTs) {
+        Map<String, Object> report = buildEventReportRecord(plan, publishTs);
+        report.put("durationMin", 0);
+        report.put("status", "RUNNING");
+        return report;
+    }
+
+    private String plannedEventConclusionTime(Object startTimeObj, long fallbackStartTs) {
+        LocalDateTime startTime = parseDateTime(stateService.stringValue(startTimeObj));
+        long startTs = startTime == null
+                ? fallbackStartTs
+                : startTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+        return dtf.format(Instant.ofEpochMilli(startTs + WINDOW_2H_MS));
+    }
+
+    private Map<String, Object> ensureRunningEventRecord(Map<String, Object> plan, long publishTs) {
+        if (plan == null) {
+            return new LinkedHashMap<>();
+        }
+        String eventId = newEventId();
+        plan.put("eventId", eventId);
+        plan.put("eventStartTime", dtf.format(Instant.ofEpochMilli(publishTs)));
+        Map<String, Object> eventRecord = buildRunningEventRecord(plan, publishTs);
+        stateService.getWindEventRecords().add(eventRecord);
+        stateService.getPersistenceService().upsertEvent(eventRecord);
+        log.info("wind control running event created: planId={}, eventId={}, status={}",
+                stateService.stringValue(plan.get("planId")),
+                eventId,
+                stateService.stringValue(eventRecord.get("status")));
+        return new LinkedHashMap<>(eventRecord);
+    }
+
+    private String newEventId() {
+        String eventId;
+        do {
+            eventId = "EVT-" + UUID.randomUUID().toString().substring(0, 6);
+        } while (findEventRecordById(eventId) != null);
+        return eventId;
     }
 
     private String resolveOnDutyPersonnel(Map<String, Object> plan) {
@@ -3079,7 +3957,7 @@ public class WindControlExecutionService {
     }
 
     /**
-     * 定时收口：到达预计结束时间后自动关闭管控并生成事件记录。
+     * 定时收口：到达预计结束时间后自动关闭管控，并结束已有事件记录。
      */
     @Scheduled(fixedDelayString = "${wind.control.auto-close.fixed-delay-ms:30000}")
     public void autoCloseExpiredPlansJob() {
@@ -3087,7 +3965,7 @@ public class WindControlExecutionService {
     }
 
     /**
-     * 自动关闭到期的 PUBLISHED 方案，并生成事件报告记录。
+     * 自动关闭到期的 PUBLISHED 方案，不主动新增事件报告。
      */
     private void autoCloseExpiredPublishedPlans() {
         long now = System.currentTimeMillis();
@@ -3134,13 +4012,13 @@ public class WindControlExecutionService {
         }
         String intervalName = stateService.stringValue(interval.get("intervalName")).trim();
         if ("1-1".equals(intervalName) || "2-1".equals(intervalName)) {
-            return "一碗泉服务区-红山口服务区";
+            return direction == DIRECTION_TURPAN ? "一碗泉服务区-红山口服务区" : "红山口服务区-一碗泉服务区";
         }
         if ("1-2".equals(intervalName) || "2-2".equals(intervalName)) {
-            return "沙尔湖服务区-红山口互通";
+            return direction == DIRECTION_TURPAN ? "红山口服务区-红山口互通" : "红山口互通-红山口服务区";
         }
         if ("1-3".equals(intervalName) || "2-3".equals(intervalName)) {
-            return "七克台互通-沙尔湖服务区";
+            return direction == DIRECTION_TURPAN ? "红山口互通-沙尔湖服务区" : "沙尔湖服务区-红山口互通";
         }
         String startStake = stateService.stringValue(interval.get("startStake"));
         String endStake = stateService.stringValue(interval.get("endStake"));
@@ -3230,6 +4108,7 @@ public class WindControlExecutionService {
         String warehouse = stateService.stringValue(dispatch.get("warehouse"));
 
         dispatch.put("teamId", teamId);
+        dispatch.put("teamName", team == null ? "" : firstNonBlank(team.get("name"), team.get("teamName"), team.get("team")));
         dispatch.put("contactStaff", contact);
         dispatch.put("warehouse", warehouse);
         return dispatch;
@@ -3383,6 +4262,7 @@ public class WindControlExecutionService {
             }
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("teamId", teamId);
+            row.put("name", firstNonBlank(team.get("name"), team.get("teamName"), team.get("team")));
             row.put("contactName", firstNonBlank(team.get("contactName"), team.get("contact_name")));
             row.put("node", firstNonBlank(team.get("node"), team.get("responsibleNode")));
             rows.add(row);
@@ -3393,13 +4273,14 @@ public class WindControlExecutionService {
     private List<Map<String, Object>> getDutyTeamsFromDbForExecution() {
         try {
             List<Map<String, Object>> queryRows = jdbcTemplate.queryForList(
-                    "SELECT team_id AS teamId, contact_name AS contactName, node " +
+                    "SELECT team_id AS teamId, name, contact_name AS contactName, node " +
                             "FROM duty_team_static WHERE is_enabled = 1 ORDER BY sort_no, id"
             );
             List<Map<String, Object>> rows = new ArrayList<>();
             for (Map<String, Object> item : queryRows) {
                 Map<String, Object> row = new LinkedHashMap<>();
                 row.put("teamId", firstNonBlank(item.get("teamId"), item.get("team_id")));
+                row.put("name", firstNonBlank(item.get("name")));
                 row.put("contactName", firstNonBlank(item.get("contactName"), item.get("contact_name")));
                 row.put("node", firstNonBlank(item.get("node")));
                 rows.add(row);
@@ -3480,6 +4361,9 @@ public class WindControlExecutionService {
             return startStake;
         }
         return startStake + "-" + endStake;
+    }
+
+    private record FixedVmsContent(String mainContent, String tipContent) {
     }
 
     private static class ExecutionVmsDevice {

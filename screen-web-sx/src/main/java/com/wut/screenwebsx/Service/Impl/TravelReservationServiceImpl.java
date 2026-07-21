@@ -5,9 +5,12 @@ import com.wut.screencommonsx.Exception.BusinessException;
 import com.wut.screencommonsx.Model.TravelReservation;
 import com.wut.screencommonsx.Request.GreenCodeRequest;
 import com.wut.screencommonsx.Response.ApiResponse;
+import com.wut.screenwebsx.Controller.NavigationController;
 import com.wut.screenwebsx.Mapper.TravelReservationMapper;
+import com.wut.screenwebsx.Service.NavigationService;
 import com.wut.screenwebsx.Service.TravelReservationService;
 import com.wut.screenwebsx.Service.UserNoticePublishService;
+import com.wut.screenwebsx.Service.WindControlWindImpactService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -15,6 +18,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 @Slf4j
@@ -23,9 +29,36 @@ import java.util.UUID;
 public class TravelReservationServiceImpl implements TravelReservationService {
     private final TravelReservationMapper reservationMapper;
     private final UserNoticePublishService userNoticePublishService;
+    private final WindControlWindImpactService windControlWindImpactService;
+    private final NavigationService navigationService;
     private static final int RESERVATION_PENDING = 2;
     private static final int RESERVATION_APPROVED = 1;
     private static final int RESERVATION_REJECTED = 0;
+    private static final int RESERVATION_FINISHED = 3;
+    private static final int CONTROL_LEVEL_RED = 1;
+    private static final int CONTROL_LEVEL_ORANGE = 2;
+    private static final int CONTROL_LEVEL_YELLOW = 3;
+    private static final int HONGSHANKOU_SERVICE_AREA_ORDER = 30;
+    private static final int HONGSHANKOU_INTERCHANGE_ORDER = 40;
+    private static final Map<String, Integer> ROUTE_POINT_ORDER = Map.ofEntries(
+            Map.entry("哈密北", 10),
+            Map.entry("哈密北出口", 10),
+            Map.entry("哈密北收费站", 10),
+            Map.entry("哈密北互通", 10),
+            Map.entry("一碗泉", 20),
+            Map.entry("一碗泉服务区", 20),
+            Map.entry("红山口服务区", HONGSHANKOU_SERVICE_AREA_ORDER),
+            Map.entry("红山口", HONGSHANKOU_SERVICE_AREA_ORDER),
+            Map.entry("红山口互通", HONGSHANKOU_INTERCHANGE_ORDER),
+            Map.entry("沙尔湖", 50),
+            Map.entry("沙尔湖服务区", 50),
+            Map.entry("七克台", 60),
+            Map.entry("七可台", 60),
+            Map.entry("七克台东互通", 60),
+            Map.entry("七可台互通", 60),
+            Map.entry("吐峪沟", 70),
+            Map.entry("吐峪沟互通", 70)
+    );
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -55,6 +88,7 @@ public class TravelReservationServiceImpl implements TravelReservationService {
             response.setSuccess(true);
             response.setQrCode("data:image/png;base64,iVBORw0KGgoAAAANS...");
             response.setReservationData(request);
+            response.setOverview(resolveOverview());
             return ApiResponse.success("预约提交成功", response);
         } catch (BusinessException ex) {
             userNoticePublishService.publishReservationSubmitFailed(
@@ -111,6 +145,25 @@ public class TravelReservationServiceImpl implements TravelReservationService {
         return ApiResponse.success("\u83b7\u53d6\u6210\u529f", response);
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ApiResponse<?> finishReservation(Long reservationId, String phone) {
+        TravelReservation reservation = reservationMapper.selectById(reservationId);
+        if (reservation == null || !sameText(reservation.getUserPhone(), phone)) {
+            throw BusinessException.notFound("未找到预约记录");
+        }
+        Integer status = reservation.getIsPassed();
+        if (status != null && status != RESERVATION_PENDING && status != RESERVATION_APPROVED && status != RESERVATION_FINISHED) {
+            throw BusinessException.badRequest("当前预约状态不允许结束");
+        }
+        if (status == null || status != RESERVATION_FINISHED) {
+            reservation.setIsPassed(RESERVATION_FINISHED);
+            reservation.setUpdateTime(LocalDateTime.now());
+            reservationMapper.updateById(reservation);
+        }
+        return ApiResponse.success("预约状态已结束", null);
+    }
+
     private TravelReservation buildReservation(GreenCodeRequest request, String phone) {
         TravelReservation reservation = new TravelReservation();
         reservation.setUserPhone(phone);
@@ -122,11 +175,161 @@ public class TravelReservationServiceImpl implements TravelReservationService {
         reservation.setCargoWeight(request.getCargoWeight() == null
                 ? BigDecimal.ZERO
                 : new BigDecimal(request.getCargoWeight()));
-        reservation.setIsPassed(RESERVATION_PENDING);
+        ReservationDecision decision = decideReservation(request);
+        reservation.setIsPassed(decision.isPassed());
+        reservation.setRejectReason(decision.rejectReason());
         reservation.setCreateTime(LocalDateTime.now());
         reservation.setUpdateTime(LocalDateTime.now());
         reservation.setExpireTime(LocalDateTime.now().plusHours(24));
         return reservation;
+    }
+
+    private ReservationDecision decideReservation(GreenCodeRequest request) {
+        if (!includesHongshankou(request)) {
+            return ReservationDecision.approved();
+        }
+
+        Integer currentControlLevel = resolveCurrentControlLevel();
+        if (currentControlLevel == null) {
+            return ReservationDecision.pending();
+        }
+        if (currentControlLevel == CONTROL_LEVEL_RED) {
+            return ReservationDecision.rejected("当前红色警戒，所有车辆禁止预约通行");
+        }
+        if (currentControlLevel == CONTROL_LEVEL_ORANGE) {
+            return isSmallVehicle(request.getVehicleType())
+                    ? ReservationDecision.approved()
+                    : ReservationDecision.rejected("当前橙色警戒，大型车辆禁止预约通行");
+        }
+        if (currentControlLevel >= CONTROL_LEVEL_YELLOW) {
+            return ReservationDecision.approved();
+        }
+        return ReservationDecision.pending();
+    }
+
+    private NavigationController.OverviewInfo resolveOverview() {
+        try {
+            ApiResponse<NavigationController.OverviewInfo> overviewResponse = navigationService.getOverview();
+            return overviewResponse == null ? null : overviewResponse.getData();
+        } catch (Exception ex) {
+            log.warn("resolve reservation overview failed", ex);
+            return null;
+        }
+    }
+
+    private boolean includesHongshankou(GreenCodeRequest request) {
+        String startPoint = request.getStartPoint();
+        String endPoint = request.getEndPoint();
+        if (containsHongshankou(startPoint) || containsHongshankou(endPoint)) {
+            return true;
+        }
+
+        Integer startOrder = resolveRoutePointOrder(startPoint);
+        Integer endOrder = resolveRoutePointOrder(endPoint);
+        if (startOrder == null || endOrder == null) {
+            return false;
+        }
+
+        int minOrder = Math.min(startOrder, endOrder);
+        int maxOrder = Math.max(startOrder, endOrder);
+        return minOrder <= HONGSHANKOU_INTERCHANGE_ORDER
+                && maxOrder >= HONGSHANKOU_SERVICE_AREA_ORDER;
+    }
+
+    private boolean containsHongshankou(String text) {
+        return text != null && text.contains("红山口");
+    }
+
+    private Integer resolveRoutePointOrder(String point) {
+        String normalized = normalizeRoutePoint(point);
+        if (normalized.isBlank()) {
+            return null;
+        }
+        Integer exactOrder = ROUTE_POINT_ORDER.get(normalized);
+        if (exactOrder != null) {
+            return exactOrder;
+        }
+        for (Map.Entry<String, Integer> entry : ROUTE_POINT_ORDER.entrySet()) {
+            if (normalized.contains(entry.getKey()) || entry.getKey().contains(normalized)) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    private String normalizeRoutePoint(String point) {
+        if (point == null) {
+            return "";
+        }
+        return point.trim()
+                .replace(" ", "")
+                .replace("　", "")
+                .replace("（", "(")
+                .replace("）", ")")
+                .replace("出口收费站", "出口")
+                .replace("入口收费站", "入口");
+    }
+
+    private Integer resolveCurrentControlLevel() {
+        try {
+            Map<String, Object> data = windControlWindImpactService.evaluateSpatiotemporalImpact(
+                    System.currentTimeMillis(), "real", null);
+            Object rawRecords = data == null ? null : data.get("records");
+            if (!(rawRecords instanceof List<?> records)) {
+                return null;
+            }
+
+            Integer level = null;
+            for (Object item : records) {
+                if (!(item instanceof Map<?, ?> record)) {
+                    continue;
+                }
+                Integer rowLevel = toInteger(record.get("currentControlLevel"));
+                if (rowLevel == null) {
+                    rowLevel = toInteger(record.get("recommendedControlLevel"));
+                }
+                if (rowLevel == null || rowLevel <= 0) {
+                    continue;
+                }
+                level = level == null ? rowLevel : Math.min(level, rowLevel);
+            }
+            return level;
+        } catch (Exception ex) {
+            log.warn("resolve reservation current control level failed", ex);
+            return null;
+        }
+    }
+
+    private Integer toInteger(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value == null) {
+            return null;
+        }
+        try {
+            return (int) Double.parseDouble(String.valueOf(value).trim());
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private boolean isSmallVehicle(String vehicleType) {
+        if (vehicleType == null) {
+            return false;
+        }
+        String value = vehicleType.trim().toLowerCase(Locale.ROOT);
+        return "1".equals(value)
+                || value.contains("small")
+                || value.contains("小")
+                || value.contains("客");
+    }
+
+    private boolean sameText(String left, String right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        return left.trim().equalsIgnoreCase(right.trim());
     }
 
     private String toCertificateStatus(Integer isPassed) {
@@ -138,6 +341,9 @@ public class TravelReservationServiceImpl implements TravelReservationService {
         }
         if (isPassed == RESERVATION_REJECTED) {
             return "rejected";
+        }
+        if (isPassed == RESERVATION_FINISHED) {
+            return "finished";
         }
         return "unknown";
     }
@@ -166,6 +372,7 @@ public class TravelReservationServiceImpl implements TravelReservationService {
         private boolean success;
         private String qrCode;
         private GreenCodeRequest reservationData;
+        private NavigationController.OverviewInfo overview;
 
         public boolean isSuccess() {
             return success;
@@ -189,6 +396,14 @@ public class TravelReservationServiceImpl implements TravelReservationService {
 
         public void setReservationData(GreenCodeRequest reservationData) {
             this.reservationData = reservationData;
+        }
+
+        public NavigationController.OverviewInfo getOverview() {
+            return overview;
+        }
+
+        public void setOverview(NavigationController.OverviewInfo overview) {
+            this.overview = overview;
         }
     }
 
@@ -285,6 +500,20 @@ public class TravelReservationServiceImpl implements TravelReservationService {
 
         public void setPlateNumber(String plateNumber) {
             this.plateNumber = plateNumber;
+        }
+    }
+
+    private record ReservationDecision(Integer isPassed, String rejectReason) {
+        static ReservationDecision approved() {
+            return new ReservationDecision(RESERVATION_APPROVED, null);
+        }
+
+        static ReservationDecision pending() {
+            return new ReservationDecision(RESERVATION_PENDING, null);
+        }
+
+        static ReservationDecision rejected(String rejectReason) {
+            return new ReservationDecision(RESERVATION_REJECTED, rejectReason);
         }
     }
 }

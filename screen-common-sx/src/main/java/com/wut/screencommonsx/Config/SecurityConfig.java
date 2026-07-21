@@ -38,6 +38,8 @@ public class SecurityConfig {
 
     private static final String[] EXCLUDE_URLS = {
             "/api/login", "/api/register", "/api/auth/**",
+            "/api/realtime-navigation/overview",
+            "/api/realtimeNavigation/overview",
             "/api/v1/operation-maintenance/**",
 
             "/api/v1/road-statuses",
@@ -84,6 +86,7 @@ public class SecurityConfig {
             "/api/v1/control-dashboard/auto-generation",
             "/api/v1/control-dashboard/execution/**",
             "/api/v1/control-dashboard/event-reports",
+            "/api/v1/control-dashboard/dispatch-records",
 
             "/api/v1/wind-risk-speed/**",
             "/api/v1/wind-risk-sections/**",

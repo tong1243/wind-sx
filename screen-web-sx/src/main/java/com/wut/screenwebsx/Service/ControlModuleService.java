@@ -53,7 +53,6 @@ public class ControlModuleService {
     private static final String DIR_HAMI = "哈密";
     /** 吐鲁番方向标识。 */
     private static final String DIR_TLF = "吐鲁番";
-
     /** 路段静态信息服务。 */
     private final RoadSegmentStaticService roadSegmentStaticService;
     /** 断面参数服务。 */
